@@ -1,6 +1,7 @@
-from tello_drone import DroneSimulator, TelloSimulator
+from tello_drone_simulator import TelloDroneSimulator
 from ursina import *
 
+### TODO: Play with these to sort out the elements being outside the window
 app = Ursina()
 window.color = color.rgb(135, 206, 235)  
 window.fullscreen = True
@@ -12,8 +13,8 @@ window.render_mode = 'default'
 
 Sky(texture='sky_sunset')
 
-tello_sim = TelloSimulator()  
-drone_sim = DroneSimulator(tello_sim)  
+tello_sim = TelloDroneSimulator()  
+drone_sim = TelloDroneSimulator(tello_sim)  
 
 def input(key):
     if key == 'h':
