@@ -1,5 +1,7 @@
-from ursina import *
-from time import time
+import os
+from PIL import Image
+from ursina import *  # noqa: F403
+from time import time, sleep
 
 def lerp_color(start_color, end_color, factor):
     """Custom color interpolation function"""
@@ -10,60 +12,40 @@ def lerp_color(start_color, end_color, factor):
         1  # Alpha channel
     )
 
-
-class TelloSimulator:
-   
-    def __init__(self):
-        self.battery_level = 100
-        self.altitude = 3
-        self.speed = 0
-        self.rotation_angle = 0
-        self.is_flying = False
-        self.start_time = time()  
-
-    def connect(self):
-        print("Tello Simulator: Drone connected")
-        return True
-
-    def get_battery(self):
-        elapsed_time = time() - self.start_time
-        self.battery_level = max(100 - int((elapsed_time / 3600) * 100), 0)  # Reduce battery over 60 min
-        return self.battery_level  
-
-    def takeoff(self):
-        if not self.is_flying:
-            print("Tello Simulator: Drone taking off")
-            self.is_flying = True
-            return "Taking off"
-        return "Already in air"
-
-    def land(self):
-        if self.is_flying:
-            print("Tello Simulator: Drone landing")
-            self.is_flying = False
-            return "Landing"
-        return "Already on ground"
-
-    def move(self, direction, distance=1):
-        print(f"Tello Simulator: Moving {direction} by {distance} meters")
-
-    def rotate(self, angle):
-        self.rotation_angle += angle
-        print(f"Tello Simulator: Rotating {angle} degrees")
-
-    #def start_video_stream(self):
-        #print("Tello Simulator: Starting video stream...")
-
-   # def get_video_frame(self):
-        #return "Simulated video frame"
-
-
 class DroneSimulator(Entity):
     def __init__(self, tello_api, **kwargs):
         super().__init__()
 
+        # Takeoff Indicator UI
+        self.takeoff_indicator_left = Entity(
+            parent=camera.ui,
+            model=Circle(resolution=30),
+            color=color.green,  
+            scale=(0.03, 0.03, 1),  
+            position=(0.69, 0.46),  
+            z=-1
+        )
+
+        self.takeoff_indicator_middle = Entity(
+            parent=camera.ui,
+            model=Circle(resolution=30),
+            color=color.green,  
+            scale=(0.03, 0.03, 1),  
+            position=(0.73, 0.46), 
+            z=-1
+        )
+
+        self.takeoff_indicator_right = Entity(
+            parent=camera.ui,
+            model=Circle(resolution=30),
+            color=color.green,  
+            scale=(0.03, 0.03, 1),  
+            position=(0.77, 0.46),  
+            z=-1
+        )
+        
         self.help_text = Text(
-            text="Controls:\nW - Forward\nS - Backward\nA - Left\nD - Right\nShift - Launch/Up\nCtrl - Down\nJ - Rotate Left\nL - Rotate Right\nC - FPV\nH - Toggle Help",
+            text="Controls:\nW - Forward\nS - Backward\nA - Left\nD - Right\nShift - Launch/Up\nCtrl - Down\nG - Land\nE - Emergency Land\nJ - Rotate Left\nL - Rotate Right\nC - FPV\n1 - Speed-low\n2 - Speed-medium\n3 - Speed-high\nH - Toggle Help",
             position=(-0.85, 0.43),  # Top-left position
             scale=1.2,
             color=color.white,
@@ -79,7 +61,7 @@ class DroneSimulator(Entity):
             cast_shadow=True
         )
 
-       
+
         self.car = Entity(
             model='dirty_car.glb',
             scale=0.085,  
@@ -254,7 +236,7 @@ class DroneSimulator(Entity):
 
         self.first_person_view = False
         # Create a separate entity to hold the camera
-        self.camera_holder = Entity(position=self.drone.position)  
+        self.camera_holder = Entity(position=self.drone.position, rotation=self.drone.rotation)   
 
         self.drone_camera = EditorCamera()
         self.drone_camera.parent = self.camera_holder
@@ -280,6 +262,47 @@ class DroneSimulator(Entity):
 
         self.create_meters()
 
+    def get_current_fpv_view(self):
+        """ Capture the current FPV camera view and return it as a texture """
+        return camera.texture  # Get the current screen texture
+
+    
+    
+    def update_takeoff_indicator(self):
+        """Blinking effect for takeoff status"""
+        pulse = (sin(time() * 5) + 1) / 2  
+
+        if self.tello.is_flying:
+            # Sky Blue Glow after Takeoff
+            glow_color = color.rgba(100/255, 180/255, 225/255, pulse * 0.6 + 0.4)  
+        else:
+            # Green Glow before Takeoff
+            glow_color = color.rgba(0/255, 255/255, 0/255, pulse * 0.6 + 0.4)  
+
+        # Apply color changes to all three indicators
+        self.takeoff_indicator_left.color = glow_color
+        self.takeoff_indicator_middle.color = glow_color
+        self.takeoff_indicator_right.color = glow_color
+
+    def animate_flip(self, direction):
+        
+        if direction == "forward":
+            self.drone.animate('rotation_x', 360, duration=0.6, curve=curve.linear)
+        elif direction == "back":
+            self.drone.animate('rotation_x', -360, duration=0.6, curve=curve.linear)
+        elif direction == "left":
+            self.drone.animate('rotation_z', -360, duration=0.6, curve=curve.linear)
+        elif direction == "right":
+            self.drone.animate('rotation_z', 360, duration=0.6, curve=curve.linear)
+        
+        # Reset rotation after flip
+        invoke(self.reset_rotation, delay=0.62)
+    
+    def reset_rotation(self):
+        
+        self.drone.rotation_x = 0
+        self.drone.rotation_z = 0
+    
     def create_meters(self):
     
         # Main battery container
@@ -288,7 +311,7 @@ class DroneSimulator(Entity):
             model=Quad(radius=0.01),  
             color=color.gray,
             scale=(0.12, 0.04),  
-            position=(0.74, 0.41),
+            position=(0.73, 0.41),
             z=-1
         )
 
@@ -329,6 +352,41 @@ class DroneSimulator(Entity):
             color=color.red
         )
 
+        self.orientation_text = Text(
+            text="Pitch: 0°  Roll: 0°",
+            position=(0.67, 0.35),  # Below altitude meter
+            scale=0.97,
+            color=color.white
+        )
+
+        self.flight_time_text = Text(
+            text="Flight Time: 0s",
+            position=(0.67, 0.32),  # Below Pitch, Roll, Yaw
+            scale=0.97,
+            color=color.white
+        )
+
+        self.speed_x_text = Text(
+            text="Speed X: 0 km/h",
+            position=(0.67, 0.29),  # Below Flight Time
+            scale=0.94,
+            color=color.white
+        )
+
+        self.speed_y_text = Text(
+            text="Speed Y: 0 km/h",
+            position=(0.67, 0.27),  # Below Speed X
+            scale=0.94,
+            color=color.white
+        )
+
+        self.speed_z_text = Text(
+            text="Speed Z: 0 km/h",
+            position=(0.67, 0.25),  # Below Speed Y
+            scale=0.94,
+            color=color.white
+        )
+    
     def update_meters(self):
         """Update telemetry meters"""
         battery = self.tello.get_battery()
@@ -353,6 +411,23 @@ class DroneSimulator(Entity):
         # Update altitude
         self.altitude_meter.text = f"Altitude: {((self.drone.y) / 10 - 3/10):.1f}m"
         
+        pitch = self.tello.get_pitch()
+        roll = self.tello.get_roll()
+        self.orientation_text.text = f"Pitch: {pitch}°  Roll: {roll}°"
+
+        flight_time = self.tello.get_flight_time()
+        self.flight_time_text.text = f"Flight Time: {flight_time}s"
+
+        # Update Speed X, Y, Z
+        speed_x = self.tello.get_speed_x()
+        speed_y = self.tello.get_speed_y()
+        speed_z = self.tello.get_speed_z()
+        
+        self.speed_x_text.text = f"Speed X: {speed_x} km/h"
+        self.speed_y_text.text = f"Speed Y: {speed_y} km/h"
+        self.speed_z_text.text = f"Speed Z: {speed_z} km/h"
+
+
         # Battery warning
         current_time = time() % 1
         if battery <= 10 and battery > 0:
@@ -399,7 +474,7 @@ class DroneSimulator(Entity):
             # Third-person view
             self.camera_holder.position = lerp(self.camera_holder.position, self.drone.position, 0.1)
             self.camera_holder.rotation_y = self.drone.rotation_y  # yaw only
-            self.drone_camera.rotation_x = 0  # Prevent pitch tilting
+            self.drone_camera.rotation_x = 10  # Prevent pitch tilting
             self.drone_camera.rotation_z = 0  # Prevent roll tilting
 
         self.update_meters()
@@ -409,17 +484,25 @@ class DroneSimulator(Entity):
         self.tello.move(direction, 1)
 
         if direction == "forward":
-            self.acceleration += self.drone.forward * self.accel_force
+            forward_vector = self.drone.forward * self.accel_force
+            forward_vector.y = 0  
+            self.acceleration += forward_vector
             self.pitch_angle = self.max_pitch  
         elif direction == "backward":
-            self.acceleration -= self.drone.forward * self.accel_force
-            self.pitch_angle = -self.max_pitch  
+            backward_vector = -self.drone.forward * self.accel_force
+            backward_vector.y = 0  
+            self.acceleration += backward_vector
+            self.pitch_angle = -self.max_pitch
         elif direction == "left":
-            self.acceleration -= self.drone.right * self.accel_force
-            self.roll_angle = -self.max_roll  
+            left_vector = -self.drone.right * self.accel_force
+            left_vector.y = 0  
+            self.acceleration += left_vector
+            self.roll_angle = -self.max_roll
         elif direction == "right":
-            self.acceleration += self.drone.right * self.accel_force
-            self.roll_angle = self.max_roll  
+            right_vector = self.drone.right * self.accel_force
+            right_vector.y = 0  
+            self.acceleration += right_vector
+            self.roll_angle = self.max_roll
     def toggle_camera_view(self):
         self.first_person_view = not self.first_person_view
         if self.first_person_view:
@@ -447,65 +530,246 @@ class DroneSimulator(Entity):
         self.drone.rotation_x = lerp(self.drone.rotation_x, self.pitch_angle, self.tilt_smoothness)
         self.drone.rotation_z = lerp(self.drone.rotation_z, self.roll_angle, self.tilt_smoothness)
 
-    #def land_drone(self):
-    #    """ Land the drone when battery reaches zero """
-    #    while self.drone.y > 0:
-    #        self.drone.y -= 0.1
-    #        self.update_meters()
-    #    self.drone.y = 0
-    #    self.warning_text.text = "Landed."
 
+class TelloConnector:
+   
+    def __init__(self, drone_sim: DroneSimulator,max_frames=50):
+        self.battery_level = 100
+        self.drone_sim = drone_sim
+        self.altitude = 3
+        self.speed = 0
+        self.rotation_angle = 0
+        self.is_flying = False
+        self.last_keys = {}
+        self.start_time = time()
+        self.stream_active = False
+        self.is_connected = False
+        self.recording_folder = "tello_recording"
+        self.frame_count = 0
+        self.saved_frames = []
+        self.screenshot_interval = 3  
+        self.last_screenshot_time = None  
+        self.last_altitude = self.altitude  
+        self.last_time = self.start_time
+        if not os.path.exists(self.recording_folder):
+            os.makedirs(self.recording_folder)
 
-app = Ursina()
-window.color = color.rgb(135, 206, 235)  
-window.fullscreen = True
+    def connect(self):
+        """Simulate connecting to the drone."""
+        if not self.is_connected:
+            print("Tello Simulator: Connecting...")
+            sleep(1)  
+            self.is_connected = True
+            print("Tello Simulator: Connection successful! Press 'Shift' to take off.")
 
-window.borderless = False 
-window.fps_counter.enabled = False  
-window.render_mode = 'default'  
+    def take_off(self):
+        """Simulate takeoff only if connected."""
+        if not self.is_connected:
+            print("Tello Simulator: Cannot take off. Connect first using 'connect()'.")
+            
+            return
+        
+        if not self.is_flying:
+            print("Tello Simulator: Taking off...")
+            
+            self.is_flying = True
+            if self.drone_sim:
+                self.drone_sim.is_flying = True
+                target_altitude = self.drone_sim.drone.y + 2  # Target altitude
+                self.drone_sim.drone.animate('y', target_altitude, duration=1, curve=curve.in_out_quad)
 
+                
+            print("Tello Simulator: Takeoff successful! You can now control the drone.")
+        else:
+            print("Tello Simulator: Already in air.")
 
-Sky(texture='sky_sunset')
+    def streamon(self):
+        """Start capturing screenshots at a 3-second interval"""
+        if not self.stream_active:
+            self.stream_active = True
+            self.frame_count = 0
+            self.saved_frames = []
+            self.last_screenshot_time = time() + 3  # First capture after 3 sec
 
-tello_sim = TelloSimulator()  
-drone_sim = DroneSimulator(tello_sim)  
+            if self.drone_sim:
+                self.drone_sim.toggle_camera_view()
 
-def input(key):
-    if key == 'h':
-        drone_sim.help_text.visible = not drone_sim.help_text.visible
-    if key == 'c':
-        drone_sim.toggle_camera_view()
-def update():
-    moving = False
-    rolling = False
+            print("Tello Simulator: Video streaming started, FPV mode activated.")
 
-    if held_keys['w']:
-        drone_sim.move("forward")
-        moving = True
-    if held_keys['s']:
-        drone_sim.move("backward")
-        moving = True
-    if held_keys['a']:
-        drone_sim.move("left")
-        rolling = True
-    if held_keys['d']:
-        drone_sim.move("right")
-        rolling = True
-    if held_keys['j']:
-        drone_sim.rotate(-drone_sim.rotation_speed)
-    if held_keys['l']:
-        drone_sim.rotate(drone_sim.rotation_speed)
-    if held_keys['shift']:
-        drone_sim.change_altitude("up")
-    if held_keys['control']:
-        drone_sim.change_altitude("down")
-    if not moving:
-        drone_sim.pitch_angle = 0  # Reset pitch when not moving
     
-    if not rolling:
-        drone_sim.roll_angle = 0  # Reset roll when not rolling
+    
+    def streamoff(self):
+        """Stop capturing screenshots"""
+        if self.stream_active:
+            self.stream_active = False
+            print(f"Tello Simulator: Video streaming stopped. Frames captured: {len(self.saved_frames)}")
 
-    drone_sim.update_movement()
-    drone_sim.update_pitch_roll()
+            if self.drone_sim:
+                self.drone_sim.toggle_camera_view()
 
-app.run()
+    def capture_frame(self):
+        """Capture and save the FPV view directly from the GPU frame buffer"""
+        if not self.stream_active:
+            return  
+
+        current_time = time()
+
+        if self.last_screenshot_time is None or current_time - self.last_screenshot_time >= self.screenshot_interval:
+            self.last_screenshot_time = current_time
+            frame_path = os.path.join(self.recording_folder, f"frame_{self.frame_count}.png")
+
+            
+            width, height = int(window.size[0]), int(window.size[1])
+
+            # Capture pixels from OpenGL buffer
+            pixel_data = glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE)
+            if pixel_data:
+                image = Image.frombytes("RGBA", (width, height), pixel_data)
+                image = image.transpose(Image.FLIP_TOP_BOTTOM)  # Flip image 
+                image = image.convert("RGB")  # Convert to standard RGB format
+                image.save(frame_path, "PNG")
+
+                self.saved_frames.append(frame_path)
+                self.frame_count += 1
+                print(f"Screenshot {self.frame_count} saved: {frame_path}")
+            else:
+                print("Error: Could not capture FPV view, GPU buffer unavailable.")
+    
+    def get_frame_read(self):
+        """Open the folder containing saved frames"""
+        os.startfile(self.recording_folder)  # Open folder in File Explorer
+        print(f"Opened recording folder: {self.recording_folder}")
+    
+    def get_battery(self):
+        elapsed_time = time() - self.start_time
+        self.battery_level = max(100 - int((elapsed_time / 3600) * 100), 0)  # Reduce battery over 60 min
+        return self.battery_level  
+    
+    def rotate(self, angle):
+        self.rotation_angle += angle
+        print(f"Tello Simulator: Rotating {angle} degrees")
+
+    def land(self):
+        """Initiate a smooth landing animation to altitude = 3"""
+        if self.is_flying:
+            print("Tello Simulator: Drone landing...")
+
+            if self.drone_sim:
+                # Get current altitude
+                current_altitude = self.drone_sim.drone.y
+
+                # altitude = 3
+                self.drone_sim.drone.animate('y', 3, duration=current_altitude * 0.5, curve=curve.in_out_quad)
+
+            self.is_flying = False
+            return "Landing initiated"
+        
+        return "Already on ground"
+
+    def emergency(self):
+        """Initiate an emergency landing by immediately stopping and descending to altitude = 3."""
+        if self.is_flying:
+            print(" Emergency! Stopping all motors and descending immediately!")
+
+            if self.drone_sim:
+                # Stop movement 
+                self.drone_sim.velocity = Vec3(0, 0, 0)
+                self.drone_sim.acceleration = Vec3(0, 0, 0)
+
+                # descent to altitude = 3
+                self.drone_sim.drone.animate('y', 3, duration=1.5, curve=curve.linear)
+
+            self.is_flying = False
+            return "Emergency landing initiated"
+        
+        return "Drone is already on the ground"
+    
+    def set_speed(self, x: int):
+        """Set drone speed by adjusting acceleration force.
+        
+        Arguments:
+            x (int): Speed in cm/s (10-100)
+        """
+        if not (10 <= x <= 100):
+            print(" Invalid speed! Speed must be between 10 and 100 cm/s.")
+            return
+
+        if self.drone_sim:
+            # Normalize speed
+            self.drone_sim.accel_force = (x / 100) * 1.5  
+
+            print(f" Speed set to {x} cm/s. Acceleration force: {self.drone_sim.accel_force}")
+        else:
+            print(" Drone simulator not connected.")
+    
+    def move(self, direction, distance=1):
+        print(f"Tello Simulator: Moving {direction} by {distance} meters")
+
+    def get_pitch(self) -> int:
+        
+        if self.drone_sim:
+            return int(self.drone_sim.drone.rotation_x) 
+        return 0
+
+    def get_roll(self) -> int:
+        
+        if self.drone_sim:
+            return int(self.drone_sim.drone.rotation_z)  
+        return 0
+
+    def get_flight_time(self) -> int:
+        """Return total flight time in seconds."""
+        if self.is_flying:
+            return int(time() - self.start_time)  
+        return 0  # Not flying
+
+    def get_speed_x(self) -> int:
+        
+        if self.drone_sim:
+            return int(self.drone_sim.velocity.x * 3.6)  
+        return 0
+
+    def get_speed_y(self) -> int:
+        
+        if self.drone_sim:
+            current_time = time()
+            elapsed_time = current_time - self.last_time
+
+            if elapsed_time > 0:  
+                current_altitude = (self.drone_sim.drone.y * 0.1) - 0.3
+                vertical_speed = (current_altitude - self.last_altitude) / elapsed_time  
+                self.last_altitude = current_altitude
+                self.last_time = current_time
+                return int(vertical_speed * 3.6)  
+
+        return 0
+
+    def get_speed_z(self) -> int:
+        
+        if self.drone_sim:
+            return int(self.drone_sim.velocity.z * 3.6)  
+        return 0
+
+    def flip_forward(self):
+        
+        if self.drone_sim and self.is_flying:
+            print("Tello Simulator: Performing Forward Flip!")
+            self.drone_sim.animate_flip(direction="forward")
+
+    def flip_back(self):
+        
+        if self.drone_sim and self.is_flying:
+            print("Tello Simulator: Performing Backward Flip!")
+            self.drone_sim.animate_flip(direction="back")
+
+    def flip_left(self):
+        
+        if self.drone_sim and self.is_flying:
+            print("Tello Simulator: Performing Left Flip!")
+            self.drone_sim.animate_flip(direction="left")
+
+    def flip_right(self):
+        
+        if self.drone_sim and self.is_flying:
+            print("Tello Simulator: Performing Right Flip!")
+            self.drone_sim.animate_flip(direction="right")
