@@ -24,4 +24,4 @@ pip install -r requirements.txt
 
 ```bash
 python tello_drone.py
-``` # tello-sim
+```
