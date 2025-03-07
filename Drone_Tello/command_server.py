@@ -18,7 +18,6 @@ class CommandServer:
         self.altitude = 0
         self.speed = 0
         self.rotation_angle = 0
-        self.is_flying = False
         self.last_keys = {}
         self.start_time = time()
         self.stream_active = False
@@ -307,41 +306,13 @@ class CommandServer:
         else:
             print("Tello Simulator: Cannot execute GO command. Drone not flying.")
 
-    def curve_xyz_speed(self, x1, y1, z1, x2, y2, z2, speed):
-        if self.ursina_adapter and self.is_flying:
-            print(f"Tello Simulator: CURVE command from ({x1}, {y1}, {z1}) to ({x2}, {x2}, {z2}) at speed {speed}")
-            duration = max(1, speed / 10)
+    def curve_xyz_speed(self, x1: float, y1: float, z1: float, x2: float, y2: float, z2: float, speed: float) -> None:
+        self.ursina_adapter.curve_xyz_speed(x1, y1, z1, x2, y2, z2, speed)
 
-            first_point = self.ursina_adapter.drone.position + Vec3(x1 / 10, y1 / 10, z1 / 10)
-            second_point = self.ursina_adapter.drone.position + Vec3(x2 / 10, y2 / 10, z2 / 10)
-
-            # Smooth curve with camera sync
-            def follow_camera():
-                self.ursina_adapter.camera_holder.position = self.ursina_adapter.drone.position
-                self.ursina_adapter.camera_holder.rotation_y = self.ursina_adapter.drone.rotation_y
-
-            # Follow during the first animation
-            self.ursina_adapter.drone.animate_position(
-                first_point, duration=duration / 2, curve=curve.in_out_quad)
-            for t in range(int(duration * 60 // 2)):  # Assuming 60 FPS
-                invoke(follow_camera, delay=t / 60)
-
-            # Follow during the second animation
-            def second_half():
-                self.ursina_adapter.drone.animate_position(
-                    second_point, duration=duration / 2, curve=curve.in_out_quad)
-                for t in range(int(duration * 60 // 2)):
-                    invoke(follow_camera, delay=t / 60)
-
-            invoke(second_half, delay=duration / 2)
-
-        else:
-            print("Tello Simulator: Cannot execute CURVE command. Drone not flying.")
 
     def send_rc_control(self, left_right_velocity_ms: float, forward_backward_velocity_ms: float, up_down_velocity_ms: float, yaw_velocity_ms: float) -> None:
         if not self.ursina_adapter:
             raise Exception("Drone simulator not connected.")
-        
         self.ursina_adapter.send_rc_control(left_right_velocity_ms, forward_backward_velocity_ms, up_down_velocity_ms, yaw_velocity_ms)
 
     

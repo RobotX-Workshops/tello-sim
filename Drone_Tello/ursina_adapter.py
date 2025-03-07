@@ -14,6 +14,8 @@ def lerp_color(start_color, end_color, factor):
 class UrsinaAdapter(Entity):
     def __init__(self):
         super().__init__()
+        self.is_flying = False
+
 
         self.dynamic_island = Entity(
             parent=camera.ui,
@@ -553,12 +555,49 @@ class UrsinaAdapter(Entity):
         
     def send_rc_control(self, left_right_velocity_ms: float, forward_backward_velocity_ms: float, up_down_velocity_ms: float, yaw_velocity_ms: float):
         
-        self.drone_sim.velocity = Vec3(
+        self.velocity = Vec3(
             forward_backward_velocity_ms / 100,  # forward/backward mapped to X
             up_down_velocity_ms / 100,           # up/down mapped to Y
             -left_right_velocity_ms / 100        # left/right mapped to Z (negated to match controls)
         )
 
-        self.drone_sim.drone.rotation_y += yaw_velocity_ms * 0.05  # Smooth rotation update
+        self.drone.rotation_y += yaw_velocity_ms * 0.05  # Smooth rotation update
         print(f"[RC Control] Velocities set -> LR: {left_right_velocity_ms}, FB: {forward_backward_velocity_ms}, UD: {up_down_velocity_ms}, Yaw: {yaw_velocity_ms}")
+
+    def curve_xyz_speed(self, x1: float, y1: float, z1: float, x2: float, y2: float, z2: float, speed: float) -> None:
+        if self.ursina_adapter and self.is_flying:
+
+
+            print(f"Tello Simulator: CURVE command from ({x1}, {y1}, {z1}) to ({x2}, {x2}, {z2}) at speed {speed}")
+            duration = max(1, speed / 10)
+
+            first_point = self.drone.position + Vec3(x1 / 10, y1 / 10, z1 / 10)
+            second_point = self.drone.position + Vec3(x2 / 10, y2 / 10, z2 / 10)
+
+            # Smooth curve with camera sync ∂∂
+            self.camera_holder.rotation_y = self.drone.rotation_y
+            
+            # Smooth curve with camera sync
+            def follow_camera():
+                self.camera_holder.position = self.drone.position
+                self.camera_holder.rotation_y = self.drone.rotation_y
+
+            # Follow during the first animation ∂
+            self.drone.animate_position(
+                first_point, duration=duration / 2, curve=curve.in_out_quad)
+            for t in range(int(duration * 60 // 2)):  # Assuming 60 FPS
+                invoke(follow_camera, delay=t / 60)
+
+            # Follow during the second animation
+            def second_half():
+                self.drone.animate_position(
+                    second_point, duration=duration / 2, curve=curve.in_out_quad)
+                for t in range(int(duration * 60 // 2)):
+                    invoke(follow_camera, delay=t / 60)
+
+            invoke(second_half, delay=duration / 2)
+            
+        
+        else:
+            print("Tello Simulator: Cannot execute CURVE command. Drone not flying.")
 
