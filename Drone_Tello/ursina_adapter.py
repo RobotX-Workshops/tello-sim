@@ -1,3 +1,4 @@
+from typing import Literal
 from ursina import *
 from time import time
 
@@ -10,8 +11,8 @@ def lerp_color(start_color, end_color, factor):
         1  # Alpha channel
     )
 
-class DroneSimulator(Entity):
-    def __init__(self, tello_api):
+class UrsinaAdapter(Entity):
+    def __init__(self):
         super().__init__()
 
         self.dynamic_island = Entity(
@@ -59,7 +60,6 @@ class DroneSimulator(Entity):
             visible=True
         )
         
-        self.tello = tello_api
         self.drone = Entity(
             model='tello.glb',
             scale=0.06,
@@ -499,7 +499,7 @@ class DroneSimulator(Entity):
         self.update_meters()
     
     
-    def move(self, direction, distance=10):
+    def move(self, direction: Literal["forward", "backward", "left", "right"], distance: float) -> None:
         self.tello.move(direction, distance)
         scale_factor = distance/10
         if direction == "forward":
@@ -522,7 +522,8 @@ class DroneSimulator(Entity):
             right_vector.y = 0  
             self.acceleration += right_vector
             self.roll_angle = self.max_roll
-    def toggle_camera_view(self):
+            
+    def toggle_camera_view(self) -> None:
         self.first_person_view = not self.first_person_view
         if self.first_person_view:
             # First-person view
@@ -533,7 +534,7 @@ class DroneSimulator(Entity):
             self.drone_camera.position = self.third_person_position
             self.drone_camera.rotation = self.third_person_rotation
     
-    def change_altitude(self, direction, distance=5):
+    def change_altitude(self, direction: Literal["up", "down"], distance: float=5) -> None:
         delta = distance / 20
         if direction == "up":
             self.drone.y += delta 
@@ -542,11 +543,11 @@ class DroneSimulator(Entity):
             self.drone.y -= delta
             self.tello.altitude -= delta
 
-    def rotate(self, angle):
+    def rotate(self, angle: float) -> None:
         self.tello.rotate(angle)
         self.drone.rotation_y = lerp(self.drone.rotation_y, self.drone.rotation_y + angle, 0.2)  
 
-    def update_pitch_roll(self):
+    def update_pitch_roll(self) -> None:
         self.drone.rotation_x = lerp(self.drone.rotation_x, self.pitch_angle, self.tilt_smoothness)
         self.drone.rotation_z = lerp(self.drone.rotation_z, self.roll_angle, self.tilt_smoothness)
 

@@ -1,16 +1,18 @@
 import os
 import socket
 import threading
-from ursina import *
 from time import time, sleep
 import cv2
 
-from tello_drone_sim import DroneSimulator
+from tello_drone_sim import UrsinaAdapter
 
         
-class TelloSimulationServer:
+class CommandServer:
+    """
+    Serves a TCP connections to receive commands and control the Tello drone simulator.
+    """
    
-    def __init__(self, drone_sim: DroneSimulator):
+    def __init__(self, drone_sim: UrsinaAdapter):
         self.battery_level = 100
         self.drone_sim = drone_sim
         self.altitude = 0

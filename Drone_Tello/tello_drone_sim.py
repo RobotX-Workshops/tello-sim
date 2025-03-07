@@ -1,8 +1,8 @@
-from tello_simulation_server import TelloSimulationServer
+from Drone_Tello.command_server import CommandServer
 
-from tello_drone import DroneSimulator
+from Drone_Tello.ursina_adapter import UrsinaAdapter
 
 
-drone_sim = DroneSimulator()
-tello_sim = TelloSimulationServer(drone_sim)  
+drone_sim = UrsinaAdapter()
+tello_sim = CommandServer(drone_sim)  
 tello_sim.connect() 
