@@ -11,7 +11,7 @@ def lerp_color(start_color, end_color, factor):
         start_color.b + (end_color.b - start_color.b) * factor,
         1  # Alpha channel
     )
-
+    
 class UrsinaAdapter(Entity):
     """
     A wrapper for managing the simulator state and drone controls in Ursina.
@@ -19,6 +19,16 @@ class UrsinaAdapter(Entity):
     
     def __init__(self):
         super().__init__()
+        
+        self.app = Ursina()
+        window.color = color.rgb(135, 206, 235)  
+        window.fullscreen = False
+        window.borderless = False
+        window.fps_counter.enabled = False  
+        window.render_mode = 'default'  
+
+        Sky(texture='sky_sunset')
+        
         self.is_flying = False
         self.battery_level = 100
         self.altitude = 0
@@ -518,8 +528,7 @@ class UrsinaAdapter(Entity):
             self.drone_camera.rotation_z = 0  # Prevent roll tilting
 
         self.update_meters()
-    
-    
+     
     def move(self, direction: Literal["forward", "backward", "left", "right"], distance: float) -> None:
         self.tello.move(direction, distance)
         scale_factor = distance/10
@@ -620,7 +629,6 @@ class UrsinaAdapter(Entity):
         else:
             print("Tello Simulator: Cannot execute CURVE command. Drone not flying.")
 
-
     def takeoff(self) -> None:
     
         if not self.is_flying:
@@ -673,8 +681,7 @@ class UrsinaAdapter(Entity):
             return cv2.cvtColor(self.latest_frame, cv2.COLOR_BGR2RGB)
         print("[Get Frame] No latest frame available.")
         return None
-    
-        
+          
     def capture_frame(self):
         """Capture and save the latest FPV frame from update()"""
         if not self.stream_active:
@@ -709,3 +716,81 @@ class UrsinaAdapter(Entity):
         else:
             print(" Drone simulator not connected.")
     
+    def launch(self) -> None:
+        self.app.run()
+        ## Start a new thread for the Ursina app and use the app.run() in a while loop for the update logic
+    
+        
+
+def update():
+    if not sim.state.is_connected:
+        return 
+    if held_keys['shift']:
+        if not drone_sim.tello.is_flying:
+            drone_sim.tello.takeoff()
+        else:
+            drone_sim.change_altitude("up")
+    drone_sim.update_takeoff_indicator()
+    if drone_sim.tello.stream_active:
+        width, height = int(window.size[0]), int(window.size[1])
+        try:
+            pixel_data = glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE)
+            if pixel_data:
+                image = Image.frombytes("RGBA", (width, height), pixel_data)
+                image = image.transpose(Image.FLIP_TOP_BOTTOM)
+                frame = cv2.cvtColor(np.array(image), cv2.COLOR_RGBA2BGR)
+                
+                drone_sim.tello.latest_frame = frame.copy()
+                #cv2.imshow("Tello FPV Stream", frame)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    drone_sim.tello.stream_active = False
+                    cv2.destroyAllWindows()
+                    print("[FPV] FPV preview stopped.")
+        except Exception as e:
+            print(f"[FPV] OpenGL read error: {e}")
+    
+    if not drone_sim.tello.is_flying:
+        drone_sim.camera_holder.position = drone_sim.drone.position + Vec3(0, 3, -7)
+        
+        return
+    
+    moving = False
+    rolling = False
+    
+    if drone_sim.tello.stream_active:
+        drone_sim.tello.capture_frame()
+    
+    if held_keys['w']:
+        drone_sim.move("forward")
+        moving = True
+    if held_keys['s']:
+        drone_sim.move("backward")
+        moving = True
+    if held_keys['a']:
+        drone_sim.move("left")
+        rolling = True
+    if held_keys['d']:
+        drone_sim.move("right")
+        rolling = True
+    if held_keys['j']:
+        drone_sim.rotate(-drone_sim.rotation_speed)
+    if held_keys['l']:
+        drone_sim.rotate(drone_sim.rotation_speed)
+    
+    if held_keys['control']:
+        drone_sim.change_altitude("down")
+    if not moving:
+        drone_sim.pitch_angle = 0  # Reset pitch when not moving
+    
+    if not rolling:
+        drone_sim.roll_angle = 0  # Reset roll when not rolling
+    
+
+    drone_sim.update_movement()
+    drone_sim.update_pitch_roll()
+
+
+
+        
+def create_ursina_adapter():
+    return UrsinaAdapter()
