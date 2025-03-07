@@ -1,3 +1,4 @@
 ursina
 PyOpenGL
 numpy
+opencv-python
