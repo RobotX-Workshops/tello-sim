@@ -1,10 +1,10 @@
 "Here try to create a script that navigates the drone through a course."
 
-from djitellopy import Tello
+from tello_client import TelloConnector
 import time
 
 # Create a Tello instance
-tello = Tello()
+tello = TelloConnector()
 
 # Connect to Tello
 tello.connect()

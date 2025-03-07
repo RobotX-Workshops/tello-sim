@@ -1,11 +1,10 @@
-from djitellopy import Tello
 
 import time
 
-from services.tello_connector import TelloConnector
+from tello_client import TelloConnector
 
 # Create a Tello instance
-tello = TelloConnector(Tello())
+tello = TelloConnector()
 
 # Connect to Tello
 tello.connect()

@@ -19,7 +19,7 @@ script_dir = os.path.dirname(__file__)
 parent_dir = os.path.join(script_dir, "..")
 sys.path.append(parent_dir)
 
-from djitellopy import Tello
+from tello_client import TelloConnector
 
 from services.tello_command_dispatcher import TelloCommandDispatcher
 from services.tello_connector import TelloConnector
@@ -110,7 +110,7 @@ def main(
 ) -> None:
     logging.basicConfig(level=log_level)
 
-    # Connecto to the controller
+    # Connect to the controller
     tello_controller = get_tello_control(controller_arg)
     # Connect to the Tello drone
     command_dispatcher = get_command_dispatcher()

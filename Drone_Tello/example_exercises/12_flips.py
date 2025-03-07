@@ -1,4 +1,4 @@
-from djitellopy import Tello
+from tello_client import TelloConnector
 
 import time
 

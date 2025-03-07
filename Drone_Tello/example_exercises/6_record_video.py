@@ -2,13 +2,14 @@ import os
 from threading import Thread
 import time
 from typing import cast
-from djitellopy import Tello
+from tello_client import TelloConnector
+
 import cv2
 
 # The frame rate for the video
 FPS = 30
 
-tello = Tello()
+tello = TelloConnector()
 tello.connect()
 keepRecording = True
 tello.streamon()

@@ -1,6 +1,5 @@
 from tello_client import TelloConnector
 import cv2
-import time
 
 # Desired window size
 WINDOW_WIDTH = 640

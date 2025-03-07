@@ -1,5 +1,6 @@
 import subprocess
 import platform
+import sys
 import time
 import socket
 import cv2
@@ -17,11 +18,16 @@ class TelloConnector:
 
     def _start_simulation(self):
         if platform.system() == "Windows":
-            subprocess.Popen(['start', 'cmd', '/k', 'python3 tello_drone_checking.py'], shell=True)
+            subprocess.Popen(['start', 'cmd', '/k', 'python3 tello_drone_sim.py'], shell=True)
         elif platform.system() == "Linux":
-            subprocess.Popen(['gnome-terminal', '--', 'python3', 'tello_drone_checking.py'])
+            subprocess.Popen(['gnome-terminal', '--', 'python3', 'tello_drone_sim.py'])
         elif platform.system() == "Darwin":
-            subprocess.Popen(['open', '-a', 'Terminal.app', 'python3 tello_drone_checking.py'])
+            subprocess.Popen(['ls'])
+            subprocess.Popen(['pwd'])
+            python_path = os.path.join(os.path.dirname(sys.executable), 'python3')
+            subprocess.Popen([python_path, './tello_drone_sim.py'], cwd=os.getcwd(), 
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, 
+                            start_new_session=True)
         else:
             raise OSError("Unsupported OS for launching terminal simulation.")
 
@@ -128,9 +134,6 @@ class TelloConnector:
 
     def rotate_counter_clockwise(self, degrees):
         self._send_command(f'rotate_ccw {degrees}')
-    
-    def flip_forward(self):
-        self._send_command('flip_forward')
 
     def streamon(self):
         self._send_command('streamon')

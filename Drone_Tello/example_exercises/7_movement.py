@@ -1,11 +1,11 @@
-from djitellopy import Tello
+from tello_client import TelloConnector
 
 import time
 
 MOVEMENT_DISTANCE_CM = 10
 
 # Create a Tello instance
-tello = Tello()
+tello = TelloConnector()
 
 # Connect to Tello
 tello.connect()
