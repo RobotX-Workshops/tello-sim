@@ -1,4 +1,4 @@
-from tello_client import TelloConnector
+from tello_client import TelloSimClient
 import cv2
 
 # Desired window size
@@ -6,7 +6,7 @@ WINDOW_WIDTH = 640
 WINDOW_HEIGHT = 360
 
 # Create a Tello instance
-tello = TelloConnector()
+tello = TelloSimClient()
 
 # Connect to Tello
 tello.connect()

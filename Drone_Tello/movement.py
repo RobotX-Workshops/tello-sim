@@ -1,9 +1,9 @@
 import time
-from tello_client import TelloConnector
+from tello_client import TelloSimClient
 
 MOVEMENT_DISTANCE_CM = 100
 
-tello = TelloConnector()
+tello = TelloSimClient()
 
 tello.connect()
 

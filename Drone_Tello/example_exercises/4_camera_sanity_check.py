@@ -1,8 +1,8 @@
-from tello_client import TelloConnector
+from tello_client import TelloSimClient
 import cv2
 
 # Create a Tello instance
-tello = TelloConnector()
+tello = TelloSimClient()
 
 # Connect to Tello
 tello.connect()

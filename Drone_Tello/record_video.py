@@ -2,13 +2,13 @@ import os
 import cv2
 import time
 from threading import Thread
-from tello_client import TelloConnector
+from tello_client import TelloSimClient
 
 # Configuration
 FPS = 30
 
 # Initialize Tello connector
-tello = TelloConnector()
+tello = TelloSimClient()
 tello.connect()
 tello.streamon()
 

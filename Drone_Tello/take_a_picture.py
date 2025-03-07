@@ -1,10 +1,10 @@
 import os
 import cv2
 import time
-from tello_client import TelloConnector
+from tello_client import TelloSimClient
 
 # Create a Tello instance
-tello = TelloConnector()
+tello = TelloSimClient()
 
 # Connect to the simulation
 tello.connect()

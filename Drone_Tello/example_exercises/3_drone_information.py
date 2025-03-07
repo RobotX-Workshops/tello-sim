@@ -1,10 +1,10 @@
 
 import time
 
-from tello_client import TelloConnector
+from tello_client import TelloSimClient
 
 # Create a Tello instance
-tello = TelloConnector()
+tello = TelloSimClient()
 
 # Connect to Tello
 tello.connect()

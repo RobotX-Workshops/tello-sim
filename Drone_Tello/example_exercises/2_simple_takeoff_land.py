@@ -1,11 +1,11 @@
 
 import time
 
-from tello_client import TelloConnector
+from tello_client import TelloSimClient
 
 
 # Create a Tello instance
-tello = TelloConnector()
+tello = TelloSimClient()
 
 print("Attempting to connect to drone ...")
 

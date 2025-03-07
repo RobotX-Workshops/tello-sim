@@ -1,6 +1,6 @@
-from tello_client import TelloConnector
+from tello_client import TelloSimClient
 
 
-print(TelloConnector)
+print(TelloSimClient)
 
 print("Tello import works fine")

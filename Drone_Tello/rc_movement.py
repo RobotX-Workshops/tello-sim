@@ -1,4 +1,4 @@
-from tello_client import TelloConnector
+from tello_client import TelloSimClient
 import time
 from typing import Callable
 
@@ -6,7 +6,7 @@ SPEED_SETTING_CM_S = 50
 MOVEMENT_MAGNITUDE = 70
 TIME_PER_ACTION_SECS = 3
 
-tello = TelloConnector()
+tello = TelloSimClient()
 tello.connect()
 
 print("Starting flying in ...")

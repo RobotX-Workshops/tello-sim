@@ -1,10 +1,10 @@
 import time
-from tello_client import TelloConnector
+from tello_client import TelloSimClient
 
 ROTATION_DEGREES = 90
 HEIGHT_CM = 100
 
-tello = TelloConnector()
+tello = TelloSimClient()
 
 tello.connect()
 

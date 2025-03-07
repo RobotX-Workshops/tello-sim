@@ -1,9 +1,9 @@
 import time
-from tello_client import TelloConnector
+from tello_client import TelloSimClient
 
 ROTATION_DEGREES = 180
 
-tello = TelloConnector()
+tello = TelloSimClient()
 
 tello.connect()
 

@@ -1,9 +1,9 @@
 import os
 import cv2
 import numpy as np
-from tello_client import TelloConnector
+from tello_client import TelloSimClient
 
-tello = TelloConnector()
+tello = TelloSimClient()
 tello.connect()
 
 tello.streamon()

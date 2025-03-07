@@ -1,5 +1,5 @@
 from typing import Callable
-from tello_client import TelloConnector
+from tello_client import TelloSimClient
 
 import time
 

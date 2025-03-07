@@ -19,7 +19,7 @@ script_dir = os.path.dirname(__file__)
 parent_dir = os.path.join(script_dir, "..")
 sys.path.append(parent_dir)
 
-from tello_client import TelloConnector
+from tello_client import TelloSimClient
 
 from services.tello_command_dispatcher import TelloCommandDispatcher
 from services.tello_connector import TelloConnector
@@ -98,7 +98,7 @@ def get_command_dispatcher() -> TelloCommandDispatcher:
     Creates and connects to the Tello drone and returns a instance used for dispatching commands to the tello.
     """
     tello = Tello()
-    tello_connector = TelloConnector(tello)
+    tello_connector = TelloSimClient(tello)
     tello_connector.connect()
     command_dispatcher = TelloCommandDispatcher(tello_connector)
     return command_dispatcher

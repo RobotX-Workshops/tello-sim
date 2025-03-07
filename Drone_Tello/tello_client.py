@@ -6,7 +6,7 @@ import socket
 import cv2
 import os
 
-class TelloConnector:
+class TelloSimClient:
     def __init__(self, host='localhost', port=9999, auto_start_simulation=True):
         self.host = host
         self.port = port
@@ -25,6 +25,7 @@ class TelloConnector:
             subprocess.Popen(['ls'])
             subprocess.Popen(['pwd'])
             python_path = os.path.join(os.path.dirname(sys.executable), 'python3')
+            print("Running python3 from path:", python_path)
             subprocess.Popen([python_path, './tello_drone_sim.py'], cwd=os.getcwd(), 
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, 
                             start_new_session=True)
