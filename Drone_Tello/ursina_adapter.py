@@ -610,7 +610,40 @@ class UrsinaAdapter(Entity):
             self.is_flying = True
             target_altitude = self.drone.y + 2  # Target altitude
             self.drone.animate('y', target_altitude, duration=1, curve=curve.in_out_quad)
- ∂∂∂
+
             print("Tello Simulator: Takeoff successful! You can now control the drone.")
         else:
-            print("Tello Simulator: Already in air.")∂
+            print("Tello Simulator: Already in air.")
+            
+    def land(self) -> None:
+        if self.is_flying:
+            print("Tello Simulator: Drone landing...")
+
+            if self.ursina_adapter:
+                # Get current altitude
+                current_altitude = self.ursina_adapter.drone.y
+
+                
+                self.ursina_adapter.drone.animate('y', 2.6, duration=current_altitude * 0.5, curve=curve.in_out_quad)
+
+            self.is_flying = False
+            print("Landing initiated")
+        
+        print("Already on ground")
+        
+    def emergency(self) -> None:
+        if self.is_flying:
+            print(" Emergency! Stopping all motors and descending immediately!")
+
+            if self.ursina_adapter:
+                # Stop movement 
+                self.ursina_adapter.velocity = Vec3(0, 0, 0)
+                self.ursina_adapter.acceleration = Vec3(0, 0, 0)
+
+                # descent to altitude = 3
+                self.ursina_adapter.drone.animate('y', 2.6, duration=1.5, curve=curve.linear)
+
+            self.is_flying = False
+            print("Emergency landing initiated")
+        
+        print("Drone is already on the ground")

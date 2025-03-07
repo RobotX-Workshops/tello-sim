@@ -112,38 +112,12 @@ class CommandServer:
 
     def land(self):
         """Initiate a smooth landing animation to altitude = 3"""
-        if self.is_flying:
-            print("Tello Simulator: Drone landing...")
-
-            if self.ursina_adapter:
-                # Get current altitude
-                current_altitude = self.ursina_adapter.drone.y
-
-                
-                self.ursina_adapter.drone.animate('y', 2.6, duration=current_altitude * 0.5, curve=curve.in_out_quad)
-
-            self.is_flying = False
-            return "Landing initiated"
-        
-        return "Already on ground"
+        self.ursina_adapter.land()
 
     def emergency(self):
         """Initiate an emergency landing by immediately stopping and descending to altitude = 3."""
-        if self.is_flying:
-            print(" Emergency! Stopping all motors and descending immediately!")
-
-            if self.ursina_adapter:
-                # Stop movement 
-                self.ursina_adapter.velocity = Vec3(0, 0, 0)
-                self.ursina_adapter.acceleration = Vec3(0, 0, 0)
-
-                # descent to altitude = 3
-                self.ursina_adapter.drone.animate('y', 2.6, duration=1.5, curve=curve.linear)
-
-            self.is_flying = False
-            return "Emergency landing initiated"
-        
-        return "Drone is already on the ground"
+        self.ursina_adapter.emergency()
+        print("Tello Simulator: Emergency stop initiated!")
     
     def set_speed(self, x: int):
         """Set drone speed by adjusting acceleration force.
