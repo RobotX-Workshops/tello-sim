@@ -601,3 +601,16 @@ class UrsinaAdapter(Entity):
         else:
             print("Tello Simulator: Cannot execute CURVE command. Drone not flying.")
 
+
+    def takeoff(self) -> None:
+    
+        if not self.is_flying:
+            print("Tello Simulator: Taking off...")
+            
+            self.is_flying = True
+            target_altitude = self.drone.y + 2  # Target altitude
+            self.drone.animate('y', target_altitude, duration=1, curve=curve.in_out_quad)
+ ∂∂∂
+            print("Tello Simulator: Takeoff successful! You can now control the drone.")
+        else:
+            print("Tello Simulator: Already in air.")∂

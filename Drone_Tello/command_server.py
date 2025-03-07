@@ -45,23 +45,8 @@ class CommandServer:
     def takeoff(self):
         """Simulate takeoff only if connected."""
         if not self.is_connected:
-            print("Tello Simulator: Cannot take off. Connect first using 'connect()'.")
-            
-            return
-        
-        if not self.is_flying:
-            print("Tello Simulator: Taking off...")
-            
-            self.is_flying = True
-            if self.ursina_adapter:
-                self.ursina_adapter.is_flying = True
-                target_altitude = self.ursina_adapter.drone.y + 2  # Target altitude
-                self.ursina_adapter.drone.animate('y', target_altitude, duration=1, curve=curve.in_out_quad)
-
-                
-            print("Tello Simulator: Takeoff successful! You can now control the drone.")
-        else:
-            print("Tello Simulator: Already in air.")
+            raise Exception("Drone not connected. Cannot take off.")
+        self.ursina_adapter.takeoff()
 
     def streamon(self):
         """Start capturing screenshots and enable FPV video preview."""
