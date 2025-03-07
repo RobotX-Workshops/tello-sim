@@ -3,6 +3,11 @@ from Drone_Tello.command_server import CommandServer
 from Drone_Tello.ursina_adapter import UrsinaAdapter
 
 
-drone_sim = UrsinaAdapter()
-tello_sim = CommandServer(drone_sim)  
-tello_sim.connect() 
+class TelloDroneSim:
+    def __init__(self):
+        self.ursina_adapter = UrsinaAdapter()
+        self.sever = CommandServer(self.ursina_adapter)
+
+    def start(self):
+        self.sever.run()
+        

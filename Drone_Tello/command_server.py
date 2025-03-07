@@ -9,26 +9,12 @@ from tello_drone_sim import UrsinaAdapter
         
 class CommandServer:
     """
-    Serves a TCP connections to receive commands and control the Tello drone simulator.
+    Serves a TCP connections to receive commands and forward controls to the simulator.
     """
    
     def __init__(self, ursina_adapter: UrsinaAdapter):
-        self.battery_level = 100
         self.ursina_adapter = ursina_adapter
-        self.altitude = 0
-        self.speed = 0
-        self.rotation_angle = 0
-        self.last_keys = {}
-        self.start_time = time()
-        self.stream_active = False
-        self.is_connected = False
-        self.recording_folder = "tello_recording"
-        self.frame_count = 0
-        self.saved_frames = []
-        self.screenshot_interval = 3  
-        self.latest_frame = None
-        self.last_screenshot_time = None  
-        self.last_altitude = self.altitude  
+
         self.last_time = self.start_time
         
         if not os.path.exists(self.recording_folder):
@@ -72,31 +58,16 @@ class CommandServer:
             if self.ursina_adapter:
                 self.ursina_adapter.toggle_camera_view()
 
-    def get_latest_frame(self):
+    def get_latest_frame(self) -> :
         """Return the latest frame directly"""
         if self.latest_frame is not None:
             return cv2.cvtColor(self.latest_frame, cv2.COLOR_BGR2RGB)
         print("[Get Frame] No latest frame available.")
         return None
-    
-    def capture_frame(self):
-        """Capture and save the latest FPV frame from update()"""
-        if not self.stream_active:
-            print("[Capture] Stream not active. Cannot capture frame.")
-            return  
 
-        if self.latest_frame is None:
-            print("[Capture] No latest frame available.")
-            return
-
-        frame_path = os.path.join(self.recording_folder, f"frame_{self.frame_count}.png")
-        cv2.imwrite(frame_path, self.latest_frame)
-        self.saved_frames.append(frame_path)
-        self.frame_count += 1
-        print(f"[Capture] Screenshot {self.frame_count} saved: {frame_path}")
 
     
-    def get_frame_read(self):
+    def get_frame_read(self) -> None:
         """Open the folder containing saved frames"""
         os.startfile(self.recording_folder)  # Open folder in File Explorer
         print(f"Opened recording folder: {self.recording_folder}")
@@ -118,24 +89,6 @@ class CommandServer:
         """Initiate an emergency landing by immediately stopping and descending to altitude = 3."""
         self.ursina_adapter.emergency()
         print("Tello Simulator: Emergency stop initiated!")
-    
-    def set_speed(self, x: int):
-        """Set drone speed by adjusting acceleration force.
-        
-        Arguments:
-            x (int): Speed in cm/s (10-100)
-        """
-        if not (10 <= x <= 100):
-            print(" Invalid speed! Speed must be between 10 and 100 cm/s.")
-            return
-
-        if self.ursina_adapter:
-            # Normalize speed
-            self.ursina_adapter.accel_force = (x / 100) * 1.5  
-
-            print(f" Speed set to {x} cm/s. Acceleration force: {self.ursina_adapter.accel_force}")
-        else:
-            print(" Drone simulator not connected.")
     
     def move(self, direction, distance=10):
         print(f"Tello Simulator: Moving {direction}")
@@ -231,31 +184,6 @@ class CommandServer:
             self.altitude = target_altitude
             
 
-    
-    def flip_forward(self):
-        
-        if self.ursina_adapter and self.is_flying:
-            print("Tello Simulator: Performing Forward Flip!")
-            self.ursina_adapter.animate_flip(direction="forward")
-
-    def flip_back(self):
-        
-        if self.ursina_adapter and self.is_flying:
-            print("Tello Simulator: Performing Backward Flip!")
-            self.ursina_adapter.animate_flip(direction="back")
-
-    def flip_left(self):
-        
-        if self.ursina_adapter and self.is_flying:
-            print("Tello Simulator: Performing Left Flip!")
-            self.ursina_adapter.animate_flip(direction="left")
-
-    def flip_right(self):
-        
-        if self.ursina_adapter and self.is_flying:
-            print("Tello Simulator: Performing Right Flip!")
-            self.ursina_adapter.animate_flip(direction="right")
-
     def go_xyz_speed(self, x, y, z, speed):
         if self.ursina_adapter and self.is_flying:
             print(f"Tello Simulator: GO command to X:{x}, Y:{y}, Z:{z} at speed {speed}")
@@ -312,13 +240,13 @@ class CommandServer:
                 elif data == "land":
                     self.land()
                 elif data == "flip_forward":
-                    self.flip_forward()
+                    self.ursina_adapter.animate_flip(direction="forward")
                 elif data == "flip_back":
-                    self.flip_back()
+                     self.ursina_adapter.animate_flip(direction="back")
                 elif data == "flip_left":
-                    self.flip_left()
+                     self.ursina_adapter.animate_flip(direction="left")
                 elif data == "flip_right":
-                    self.flip_right()
+                    self.ursina_adapter.animate_flip(direction="right")
                 elif data == "streamon":
                     self.streamon()
                 elif data == "streamoff":
@@ -434,18 +362,13 @@ class CommandServer:
                     conn.send(state.encode())
 
                 elif data == "get_latest_frame":
-                    if self.saved_frames:
-                        conn.send(self.saved_frames[-1].encode())
-                    else:
-                        conn.send(b"N/A")
-                
+                    return self.ursina_adapter.get_latest_frame()
                 elif data == "capture_frame":
-                    self.capture_frame()
-
+                    self.ursina_adapter.capture_frame()
                 elif data.startswith("set_speed"):
                     try:
                         _, speed = data.split()
-                        self.set_speed(int(speed))
+                        self.ursina_adapter.set_speed(int(speed))
                     except ValueError:
                         print("[Error] Invalid set_speed command format")
 

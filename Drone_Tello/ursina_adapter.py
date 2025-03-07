@@ -1,4 +1,5 @@
 from typing import Literal
+import cv2
 from ursina import *
 from time import time
 
@@ -12,9 +13,28 @@ def lerp_color(start_color, end_color, factor):
     )
 
 class UrsinaAdapter(Entity):
+    """
+    A wrapper for managing the simulator state and drone controls in Ursina.
+    """
+    
     def __init__(self):
         super().__init__()
         self.is_flying = False
+        self.battery_level = 100
+        self.altitude = 0
+        self.speed = 0
+        self.rotation_angle = 0
+        self.last_keys = {}
+        self.start_time = time()
+        self.stream_active = False
+        self.is_connected = False
+        self.recording_folder = "tello_recording"
+        self.frame_count = 0
+        self.saved_frames = []
+        self.screenshot_interval = 3  
+        self.latest_frame = None
+        self.last_screenshot_time = None  
+        self.last_altitude = self.altitude  
 
 
         self.dynamic_island = Entity(
@@ -278,7 +298,6 @@ class UrsinaAdapter(Entity):
         """ Capture the current FPV camera view and return it as a texture """
         return camera.texture  # Get the current screen texture
 
-    
     def update_takeoff_indicator(self):
         """Blinking effect for takeoff status"""
         pulse = (sin(time() * 5) + 1) / 2  
@@ -295,7 +314,7 @@ class UrsinaAdapter(Entity):
         self.takeoff_indicator_middle.color = glow_color
         self.takeoff_indicator_right.color = glow_color
 
-    def animate_flip(self, direction):
+    def animate_flip(self, direction: Literal["forward", "back", "left", "right"]) -> None:
         
         if direction == "forward":
             self.drone.animate('rotation_x', 360, duration=0.6, curve=curve.linear)
@@ -647,3 +666,46 @@ class UrsinaAdapter(Entity):
             print("Emergency landing initiated")
         
         print("Drone is already on the ground")
+        
+    def get_latest_frame(self) -> :
+        """Return the latest frame directly"""
+        if self.latest_frame is not None:
+            return cv2.cvtColor(self.latest_frame, cv2.COLOR_BGR2RGB)
+        print("[Get Frame] No latest frame available.")
+        return None
+    
+        
+    def capture_frame(self):
+        """Capture and save the latest FPV frame from update()"""
+        if not self.stream_active:
+            print("[Capture] Stream not active. Cannot capture frame.")
+            return  
+
+        if self.latest_frame is None:
+            print("[Capture] No latest frame available.")
+            return
+
+        frame_path = os.path.join(self.recording_folder, f"frame_{self.frame_count}.png")
+        cv2.imwrite(frame_path, self.latest_frame)
+        self.saved_frames.append(frame_path)
+        self.frame_count += 1
+        print(f"[Capture] Screenshot {self.frame_count} saved: {frame_path}")
+        
+    def set_speed(self, x: int):
+        """Set drone speed by adjusting acceleration force.
+        
+        Arguments:
+            x (int): Speed in cm/s (10-100)
+        """
+        if not (10 <= x <= 100):
+            print(" Invalid speed! Speed must be between 10 and 100 cm/s.")
+            return
+
+        if self.ursina_adapter:
+            # Normalize speed
+            self.ursina_adapter.accel_force = (x / 100) * 1.5  
+
+            print(f" Speed set to {x} cm/s. Acceleration force: {self.ursina_adapter.accel_force}")
+        else:
+            print(" Drone simulator not connected.")
+    
