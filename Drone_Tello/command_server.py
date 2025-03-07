@@ -12,9 +12,9 @@ class CommandServer:
     Serves a TCP connections to receive commands and control the Tello drone simulator.
     """
    
-    def __init__(self, drone_sim: UrsinaAdapter):
+    def __init__(self, ursina_adapter: UrsinaAdapter):
         self.battery_level = 100
-        self.drone_sim = drone_sim
+        self.ursina_adapter = ursina_adapter
         self.altitude = 0
         self.speed = 0
         self.rotation_angle = 0
@@ -54,10 +54,10 @@ class CommandServer:
             print("Tello Simulator: Taking off...")
             
             self.is_flying = True
-            if self.drone_sim:
-                self.drone_sim.is_flying = True
-                target_altitude = self.drone_sim.drone.y + 2  # Target altitude
-                self.drone_sim.drone.animate('y', target_altitude, duration=1, curve=curve.in_out_quad)
+            if self.ursina_adapter:
+                self.ursina_adapter.is_flying = True
+                target_altitude = self.ursina_adapter.drone.y + 2  # Target altitude
+                self.ursina_adapter.drone.animate('y', target_altitude, duration=1, curve=curve.in_out_quad)
 
                 
             print("Tello Simulator: Takeoff successful! You can now control the drone.")
@@ -72,8 +72,8 @@ class CommandServer:
             self.saved_frames = []
             self.last_screenshot_time = time() + 3  # First capture after 3 sec
 
-            if self.drone_sim:
-                self.drone_sim.toggle_camera_view()
+            if self.ursina_adapter:
+                self.ursina_adapter.toggle_camera_view()
 
             print("Tello Simulator: Video streaming started, FPV mode activated.")
             
@@ -85,8 +85,8 @@ class CommandServer:
             cv2.destroyAllWindows()
             print(f"[FPV] Video streaming stopped. Frames captured: {len(self.saved_frames)}")
 
-            if self.drone_sim:
-                self.drone_sim.toggle_camera_view()
+            if self.ursina_adapter:
+                self.ursina_adapter.toggle_camera_view()
 
     def get_latest_frame(self):
         """Return the latest frame directly"""
@@ -131,12 +131,12 @@ class CommandServer:
         if self.is_flying:
             print("Tello Simulator: Drone landing...")
 
-            if self.drone_sim:
+            if self.ursina_adapter:
                 # Get current altitude
-                current_altitude = self.drone_sim.drone.y
+                current_altitude = self.ursina_adapter.drone.y
 
                 
-                self.drone_sim.drone.animate('y', 2.6, duration=current_altitude * 0.5, curve=curve.in_out_quad)
+                self.ursina_adapter.drone.animate('y', 2.6, duration=current_altitude * 0.5, curve=curve.in_out_quad)
 
             self.is_flying = False
             return "Landing initiated"
@@ -148,13 +148,13 @@ class CommandServer:
         if self.is_flying:
             print(" Emergency! Stopping all motors and descending immediately!")
 
-            if self.drone_sim:
+            if self.ursina_adapter:
                 # Stop movement 
-                self.drone_sim.velocity = Vec3(0, 0, 0)
-                self.drone_sim.acceleration = Vec3(0, 0, 0)
+                self.ursina_adapter.velocity = Vec3(0, 0, 0)
+                self.ursina_adapter.acceleration = Vec3(0, 0, 0)
 
                 # descent to altitude = 3
-                self.drone_sim.drone.animate('y', 2.6, duration=1.5, curve=curve.linear)
+                self.ursina_adapter.drone.animate('y', 2.6, duration=1.5, curve=curve.linear)
 
             self.is_flying = False
             return "Emergency landing initiated"
@@ -171,11 +171,11 @@ class CommandServer:
             print(" Invalid speed! Speed must be between 10 and 100 cm/s.")
             return
 
-        if self.drone_sim:
+        if self.ursina_adapter:
             # Normalize speed
-            self.drone_sim.accel_force = (x / 100) * 1.5  
+            self.ursina_adapter.accel_force = (x / 100) * 1.5  
 
-            print(f" Speed set to {x} cm/s. Acceleration force: {self.drone_sim.accel_force}")
+            print(f" Speed set to {x} cm/s. Acceleration force: {self.ursina_adapter.accel_force}")
         else:
             print(" Drone simulator not connected.")
     
@@ -184,14 +184,14 @@ class CommandServer:
 
     def get_pitch(self) -> int:
         
-        if self.drone_sim:
-            return int(self.drone_sim.drone.rotation_x) 
+        if self.ursina_adapter:
+            return int(self.ursina_adapter.drone.rotation_x) 
         return 0
 
     def get_roll(self) -> int:
         
-        if self.drone_sim:
-            return int(self.drone_sim.drone.rotation_z)  
+        if self.ursina_adapter:
+            return int(self.ursina_adapter.drone.rotation_z)  
         return 0
 
     def get_flight_time(self) -> int:
@@ -202,18 +202,18 @@ class CommandServer:
 
     def get_speed_x(self) -> int:
         
-        if self.drone_sim:
-            return int(self.drone_sim.velocity.x * 3.6)  
+        if self.ursina_adapter:
+            return int(self.ursina_adapter.velocity.x * 3.6)  
         return 0
 
     def get_speed_y(self) -> int:
         
-        if self.drone_sim:
+        if self.ursina_adapter:
             current_time = time()
             elapsed_time = current_time - self.last_time
 
             if elapsed_time > 0:  
-                current_altitude = (self.drone_sim.drone.y * 0.1) - 0.3
+                current_altitude = (self.ursina_adapter.drone.y * 0.1) - 0.3
                 vertical_speed = (current_altitude - self.last_altitude) / elapsed_time  
                 self.last_altitude = current_altitude
                 self.last_time = current_time
@@ -223,42 +223,42 @@ class CommandServer:
 
     def get_speed_z(self) -> int:
         
-        if self.drone_sim:
-            return int(self.drone_sim.velocity.z * 3.6)  
+        if self.ursina_adapter:
+            return int(self.ursina_adapter.velocity.z * 3.6)  
         return 0
 
     def get_acceleration_x(self) -> float:
         """Return the current acceleration in the X direction."""
-        if self.drone_sim:
-            return self.drone_sim.acceleration.x * 100  
+        if self.ursina_adapter:
+            return self.ursina_adapter.acceleration.x * 100  
         return 0.0
 
     def get_acceleration_y(self) -> float:
         """Return the current acceleration in the Y direction."""
-        if self.drone_sim:
-            return self.drone_sim.acceleration.y * 100  
+        if self.ursina_adapter:
+            return self.ursina_adapter.acceleration.y * 100  
         return 0.0
 
     def get_acceleration_z(self) -> float:
         """Return the current acceleration in the Z direction."""
-        if self.drone_sim:
-            return self.drone_sim.acceleration.z * 100  
+        if self.ursina_adapter:
+            return self.ursina_adapter.acceleration.z * 100  
         return 0.0
     
     def rotate_smooth(self, angle):
         
-        if self.drone_sim:
-            current_yaw = self.drone_sim.drone.rotation_y
+        if self.ursina_adapter:
+            current_yaw = self.ursina_adapter.drone.rotation_y
             target_yaw = current_yaw + angle
             duration = abs(angle) / 90  
-            self.drone_sim.drone.animate('rotation_y', target_yaw, duration=duration, curve=curve.linear)
+            self.ursina_adapter.drone.animate('rotation_y', target_yaw, duration=duration, curve=curve.linear)
             print(f"Tello Simulator: Smoothly rotating {angle} degrees over {duration:.2f} seconds.")
 
     def change_altitude_smooth(self, direction: str, distance: float):
         
-        if self.drone_sim:
+        if self.ursina_adapter:
             delta = distance / 20  
-            current_altitude = self.drone_sim.drone.y
+            current_altitude = self.ursina_adapter.drone.y
 
             if direction == "up":
                 target_altitude = current_altitude + delta
@@ -269,66 +269,66 @@ class CommandServer:
                 return
 
             duration = abs(delta) * 1  
-            self.drone_sim.drone.animate('y', target_altitude, duration=duration, curve=curve.in_out_quad)
+            self.ursina_adapter.drone.animate('y', target_altitude, duration=duration, curve=curve.in_out_quad)
             self.altitude = target_altitude
             
 
     
     def flip_forward(self):
         
-        if self.drone_sim and self.is_flying:
+        if self.ursina_adapter and self.is_flying:
             print("Tello Simulator: Performing Forward Flip!")
-            self.drone_sim.animate_flip(direction="forward")
+            self.ursina_adapter.animate_flip(direction="forward")
 
     def flip_back(self):
         
-        if self.drone_sim and self.is_flying:
+        if self.ursina_adapter and self.is_flying:
             print("Tello Simulator: Performing Backward Flip!")
-            self.drone_sim.animate_flip(direction="back")
+            self.ursina_adapter.animate_flip(direction="back")
 
     def flip_left(self):
         
-        if self.drone_sim and self.is_flying:
+        if self.ursina_adapter and self.is_flying:
             print("Tello Simulator: Performing Left Flip!")
-            self.drone_sim.animate_flip(direction="left")
+            self.ursina_adapter.animate_flip(direction="left")
 
     def flip_right(self):
         
-        if self.drone_sim and self.is_flying:
+        if self.ursina_adapter and self.is_flying:
             print("Tello Simulator: Performing Right Flip!")
-            self.drone_sim.animate_flip(direction="right")
+            self.ursina_adapter.animate_flip(direction="right")
 
     def go_xyz_speed(self, x, y, z, speed):
-        if self.drone_sim and self.is_flying:
+        if self.ursina_adapter and self.is_flying:
             print(f"Tello Simulator: GO command to X:{x}, Y:{y}, Z:{z} at speed {speed}")
             duration = max(1, speed / 10)
-            target_position = self.drone_sim.drone.position + Vec3(x / 10, y / 10, z / 10)
-            self.drone_sim.drone.animate_position(target_position, duration=duration, curve=curve.in_out_quad)
+            target_position = self.ursina_adapter.drone.position + Vec3(x / 10, y / 10, z / 10)
+            self.ursina_adapter.drone.animate_position(target_position, duration=duration, curve=curve.in_out_quad)
         else:
             print("Tello Simulator: Cannot execute GO command. Drone not flying.")
 
     def curve_xyz_speed(self, x1, y1, z1, x2, y2, z2, speed):
-        if self.drone_sim and self.is_flying:
+        if self.ursina_adapter and self.is_flying:
             print(f"Tello Simulator: CURVE command from ({x1}, {y1}, {z1}) to ({x2}, {x2}, {z2}) at speed {speed}")
             duration = max(1, speed / 10)
 
-            first_point = self.drone_sim.drone.position + Vec3(x1 / 10, y1 / 10, z1 / 10)
-            second_point = self.drone_sim.drone.position + Vec3(x2 / 10, y2 / 10, z2 / 10)
+            first_point = self.ursina_adapter.drone.position + Vec3(x1 / 10, y1 / 10, z1 / 10)
+            second_point = self.ursina_adapter.drone.position + Vec3(x2 / 10, y2 / 10, z2 / 10)
 
             # Smooth curve with camera sync
             def follow_camera():
-                self.drone_sim.camera_holder.position = self.drone_sim.drone.position
-                self.drone_sim.camera_holder.rotation_y = self.drone_sim.drone.rotation_y
+                self.ursina_adapter.camera_holder.position = self.ursina_adapter.drone.position
+                self.ursina_adapter.camera_holder.rotation_y = self.ursina_adapter.drone.rotation_y
 
             # Follow during the first animation
-            self.drone_sim.drone.animate_position(
+            self.ursina_adapter.drone.animate_position(
                 first_point, duration=duration / 2, curve=curve.in_out_quad)
             for t in range(int(duration * 60 // 2)):  # Assuming 60 FPS
                 invoke(follow_camera, delay=t / 60)
 
             # Follow during the second animation
             def second_half():
-                self.drone_sim.drone.animate_position(
+                self.ursina_adapter.drone.animate_position(
                     second_point, duration=duration / 2, curve=curve.in_out_quad)
                 for t in range(int(duration * 60 // 2)):
                     invoke(follow_camera, delay=t / 60)
@@ -338,33 +338,24 @@ class CommandServer:
         else:
             print("Tello Simulator: Cannot execute CURVE command. Drone not flying.")
 
-    def send_rc_control(self, left_right_velocity, forward_backward_velocity, up_down_velocity, yaw_velocity):
+    def send_rc_control(self, left_right_velocity_ms: float, forward_backward_velocity_ms: float, up_down_velocity_ms: float, yaw_velocity_ms: float) -> None:
+        if not self.ursina_adapter:
+            raise Exception("Drone simulator not connected.")
         
-        if not self.drone_sim:
-            print("[Error] Drone simulator is not initialized.")
-            return
-
-        self.drone_sim.velocity = Vec3(
-            forward_backward_velocity / 100,  # forward/backward mapped to X
-            up_down_velocity / 100,           # up/down mapped to Y
-            -left_right_velocity / 100        # left/right mapped to Z (negated to match controls)
-        )
-
-        self.drone_sim.drone.rotation_y += yaw_velocity * 0.05  # Smooth rotation update
-        print(f"[RC Control] Velocities set -> LR: {left_right_velocity}, FB: {forward_backward_velocity}, UD: {up_down_velocity}, Yaw: {yaw_velocity}")
+        self.ursina_adapter.send_rc_control(left_right_velocity_ms, forward_backward_velocity_ms, up_down_velocity_ms, yaw_velocity_ms)
 
     
     def end(self):
         
         print("Tello Simulator: Ending simulation...")
-        if self.drone_sim:
+        if self.ursina_adapter:
             self.is_connected = False
             application.quit()
     
 
     def run(self):
         """Starts the server and listens for commands while running the Simulator."""
-        self.drone_sim.run()
+        self.ursina_adapter.run()
         threading.Thread(target=self.listen, daemon=True).start()
         
         
@@ -407,22 +398,22 @@ class CommandServer:
                 elif data.startswith("forward"):
                     parts = data.split()
                     distance = float(parts[1]) if len(parts) > 1 else 10
-                    self.drone_sim.move("forward", distance)
+                    self.ursina_adapter.move("forward", distance)
 
                 elif data.startswith("backward"):
                     parts = data.split()
                     distance = float(parts[1]) if len(parts) > 1 else 10
-                    self.drone_sim.move("backward", distance)
+                    self.ursina_adapter.move("backward", distance)
 
                 elif data.startswith("left"):
                     parts = data.split()
                     distance = float(parts[1]) if len(parts) > 1 else 10
-                    self.drone_sim.move("left", distance)
+                    self.ursina_adapter.move("left", distance)
 
                 elif data.startswith("right"):
                     parts = data.split()
                     distance = float(parts[1]) if len(parts) > 1 else 10
-                    self.drone_sim.move("right", distance)
+                    self.ursina_adapter.move("right", distance)
 
                 elif data.startswith("up"):
                     parts = data.split()
@@ -475,7 +466,7 @@ class CommandServer:
                 elif data == "get_distance_tof":
                     conn.send(str(100).encode())  
                 elif data == "get_height":
-                    height = (self.drone_sim.drone.y / 10) - 0.3
+                    height = (self.ursina_adapter.drone.y / 10) - 0.3
                     conn.send(f"{height:.1f}".encode())
                 elif data == "get_flight_time":
                     conn.send(str(self.get_flight_time()).encode())
@@ -486,21 +477,21 @@ class CommandServer:
                 elif data == "get_speed_z":
                     conn.send(str(self.get_speed_z()).encode())
                 elif data == "get_acceleration_x":
-                    conn.send(str(self.drone_sim.calculated_acceleration.x * 100).encode())  
+                    conn.send(str(self.ursina_adapter.calculated_acceleration.x * 100).encode())  
                 elif data == "get_acceleration_y":
-                    conn.send(str(self.drone_sim.calculated_acceleration.y * 100).encode())
+                    conn.send(str(self.ursina_adapter.calculated_acceleration.y * 100).encode())
                 elif data == "get_acceleration_z":
-                    conn.send(str(self.drone_sim.calculated_acceleration.z * 100).encode())
+                    conn.send(str(self.ursina_adapter.calculated_acceleration.z * 100).encode())
                 elif data == "get_pitch":
                     conn.send(str(self.get_pitch()).encode())
                 elif data == "get_roll":
                     conn.send(str(self.get_roll()).encode())
                 elif data == "get_yaw":
-                    raw_yaw = self.drone_sim.drone.rotation_y
+                    raw_yaw = self.ursina_adapter.drone.rotation_y
                     yaw = ((raw_yaw + 180) % 360) - 180
                     conn.send(str(yaw).encode())
                 elif data == "query_attitude":
-                    raw_yaw = self.drone_sim.drone.rotation_y
+                    raw_yaw = self.ursina_adapter.drone.rotation_y
                     yaw = ((raw_yaw + 180) % 360) - 180
                     attitude = {
                         "pitch": self.get_pitch(),

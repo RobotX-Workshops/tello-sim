@@ -550,4 +550,15 @@ class UrsinaAdapter(Entity):
     def update_pitch_roll(self) -> None:
         self.drone.rotation_x = lerp(self.drone.rotation_x, self.pitch_angle, self.tilt_smoothness)
         self.drone.rotation_z = lerp(self.drone.rotation_z, self.roll_angle, self.tilt_smoothness)
+        
+    def send_rc_control(self, left_right_velocity_ms: float, forward_backward_velocity_ms: float, up_down_velocity_ms: float, yaw_velocity_ms: float):
+        
+        self.drone_sim.velocity = Vec3(
+            forward_backward_velocity_ms / 100,  # forward/backward mapped to X
+            up_down_velocity_ms / 100,           # up/down mapped to Y
+            -left_right_velocity_ms / 100        # left/right mapped to Z (negated to match controls)
+        )
+
+        self.drone_sim.drone.rotation_y += yaw_velocity_ms * 0.05  # Smooth rotation update
+        print(f"[RC Control] Velocities set -> LR: {left_right_velocity_ms}, FB: {forward_backward_velocity_ms}, UD: {up_down_velocity_ms}, Yaw: {yaw_velocity_ms}")
 
