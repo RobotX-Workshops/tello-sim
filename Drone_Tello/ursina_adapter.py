@@ -93,7 +93,7 @@ class UrsinaAdapter(Entity):
         )
         
         self.drone = Entity(
-            model='tello.glb',
+            model='entities/tello.glb',
             scale=0.06,
             position=(-15.4, 2.6, 5),
             collider='box',
@@ -102,7 +102,7 @@ class UrsinaAdapter(Entity):
 
 
         self.car = Entity(
-            model='dirty_car.glb',
+            model='entities/dirty_car.glb',
             scale=0.085,  
             position=(10, 2.45, 155),  
             rotation=(0, 0, 0),
@@ -112,7 +112,7 @@ class UrsinaAdapter(Entity):
 
         
         self.truck = Entity(
-            model='road_roller.glb',
+            model='entities/road_roller.glb',
             scale=4.0,  
             position=(-150, 2.45, 155),  
             rotation=(0, -90, 0),
@@ -121,7 +121,7 @@ class UrsinaAdapter(Entity):
         )
 
         self.road_closed = Entity(
-            model='road_closed.glb',
+            model='entities/road_closed.glb',
             scale=7.0,  
             position=(-15, 2, 315),  
             rotation=(0, 90, 0),
@@ -131,7 +131,7 @@ class UrsinaAdapter(Entity):
         
     
         self.business_man = Entity(
-            model='business_man.glb',
+            model='entities/business_man.glb',
             scale=7.3,  
             position=(23, 12, 155),  
             rotation=(0, 55, 0),
@@ -140,7 +140,7 @@ class UrsinaAdapter(Entity):
         )
         
         self.man = Entity(
-            model='bos_standing.glb',
+            model='entities/bos_standing.glb',
             scale=10.3,  
             position=(-83, 2.8, 165),  
             rotation=(0, 120, 0),
@@ -149,7 +149,7 @@ class UrsinaAdapter(Entity):
         )
 
         self.patch = Entity(
-            model='pipeline_construction_site.glb',
+            model='entities/pipeline_construction_site.glb',
             scale=(15, 15, 12),  
             position=(-123, 0.0, 260), 
             rotation=(0, 0, 0),
@@ -158,7 +158,7 @@ class UrsinaAdapter(Entity):
         )
         
         self.police_man = Entity(
-            model='pig.glb',
+            model='entities/pig.glb',
             scale=10.0,  
             position=(-35, 1.7, 230),  
             rotation=(0, -70, 0),
@@ -167,7 +167,7 @@ class UrsinaAdapter(Entity):
         )
 
         self.light1 = Entity(
-            model='street_light.glb',
+            model='entities/street_light.glb',
             scale=(4, 6.5, 5),  
             position=(-55, 2.5, 260),  
             rotation=(0, -90, 0),
@@ -177,7 +177,7 @@ class UrsinaAdapter(Entity):
 
 
         self.light2 = Entity(
-            model='street_light.glb',
+            model='entities/street_light.glb',
             scale=(4, 6.5, 5),  
             position=(25, 2.5, 95),  
             rotation=(0, 90, 0),
@@ -186,7 +186,7 @@ class UrsinaAdapter(Entity):
         )
 
         self.light3 = Entity(
-            model='street_light.glb',
+            model='entities/street_light.glb',
             scale=(4, 6.5, 5),  
             position=(-55, 2.5, -70),  
             rotation=(0, -90, 0),
@@ -198,19 +198,19 @@ class UrsinaAdapter(Entity):
         
         for i in range(3):
             Entity(
-                model='cobblestone.glb',
+                model='entities/cobblestone.glb',
                 scale=(5, 10, 20),
                 position=(30, 0, i * 158.5),  
             )
         for i in range(3):
             Entity(
-                model='cobblestone.glb',
+                model='entities/cobblestone.glb',
                 scale=(5, 10, 20),
                 position=(-58, 0, i * 158.5),  
             )
 
         self.tunnel_road = Entity(
-            model='tunnel_3.glb',
+            model='entities/tunnel_3.glb',
             scale=(63, 45, 45),  
             position=(-199, 3.0, 380),  
             rotation=(0, 0, 0),  
@@ -219,7 +219,7 @@ class UrsinaAdapter(Entity):
         )
         
         self.highway_road = Entity(
-            model='highway.glb',
+            model='entities/highway.glb',
             scale=(20, 20, 5),  
             position=(-14, 2.5, 120),  
             rotation=(0, 90, 0),  
@@ -229,7 +229,7 @@ class UrsinaAdapter(Entity):
 
         
         self.barrier1 = Entity(
-            model='construction_barrier.glb',
+            model='entities/construction_barrier.glb',
             scale=(3, 3, 3),  
             position=(24, 2.5, 315),  
             rotation=(0, 0, 0),  
@@ -238,7 +238,7 @@ class UrsinaAdapter(Entity):
         )
         
         self.barrier2 = Entity(
-            model='construction_barrier.glb',
+            model='entities/construction_barrier.glb',
             scale=(3, 3, 3),  
             position=(-54, 2.5, 315),  
             rotation=(0, 0, 0),  
@@ -247,7 +247,7 @@ class UrsinaAdapter(Entity):
         )
         
         self.station = Entity(
-            model='gas_station_-_gta_v.glb',
+            model='entities/gas_station_-_gta_v.glb',
             scale=(12.7, 10, 10),  
             position=(-210, 2.5, 77),  
             rotation=(0, -90, 0),  
@@ -255,7 +255,7 @@ class UrsinaAdapter(Entity):
 
         
         Entity(
-            model='dirty_leaking_concrete_wall.glb',
+            model='entities/dirty_leaking_concrete_wall.glb',
             scale=(25, 20, 30),  
             position=(34.2, 2.5, 25),  
             rotation=(0, 90.5, 0),  
@@ -265,7 +265,7 @@ class UrsinaAdapter(Entity):
 
         
         Entity(
-            model='dirty_leaking_concrete_wall.glb',
+            model='entities/dirty_leaking_concrete_wall.glb',
             scale=(25, 20, 30),  
             position=(34, 2.5, 227),  
             rotation=(0, 91, 0),  

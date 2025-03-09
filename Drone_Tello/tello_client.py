@@ -49,7 +49,7 @@ class TelloSimClient:
             time.sleep(1)
         raise TimeoutError("[Error] Simulation did not become ready in time.")
 
-    def _send_command(self, command):
+    def _send_command(self, command: str):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((self.host, self.port))
