@@ -1,8 +1,28 @@
+import os
 from tkinter import Image
 from typing import Literal
 import cv2
-from ursina import *
+from ursina import (
+    Ursina,
+    window,
+    color,
+    Entity,
+    camera,
+    Quad,
+    Circle,
+    sin,
+    EditorCamera,
+    Vec3,
+    Text,
+    invoke,
+    curve,
+    Color,
+    Sky,
+    raycast,
+    lerp,
+)
 from time import time
+from cv2.typing import MatLike
 
 
 class UrsinaAdapter(Entity):
@@ -419,6 +439,16 @@ class UrsinaAdapter(Entity):
             scale=0.94,
             color=color.white
         )
+        
+    @staticmethod
+    def lerp_color(start_color, end_color, factor):
+        """Custom color interpolation function"""
+        return Color(
+            start_color.r + (end_color.r - start_color.r) * factor,
+            start_color.g + (end_color.g - start_color.g) * factor,
+            start_color.b + (end_color.b - start_color.b) * factor,
+            1  # Alpha channel
+        )
     
     def update_meters(self):
         """Update telemetry meters"""
@@ -431,13 +461,13 @@ class UrsinaAdapter(Entity):
         # color transitions (green → yellow → orange → red)
         if battery > 60:
             factor = (battery - 60) / 40  # 100-60%: green to yellow
-            col = lerp_color(color.yellow, color.green, factor)
+            col = UrsinaAdapter.lerp_color(color.yellow, color.green, factor)
         elif battery > 30:
             factor = (battery - 30) / 30  # 60-30%: yellow to orange
-            col = lerp_color(color.orange, color.yellow, factor)
+            col = UrsinaAdapter.lerp_color(color.orange, color.yellow, factor)
         else:
             factor = battery / 30  # 30-0%: orange to red
-            col = lerp_color(color.red, color.orange, factor)
+            col = UrsinaAdapter.lerp_color(color.red, color.orange, factor)
         
         self.battery_fill.color = col
         
@@ -477,7 +507,7 @@ class UrsinaAdapter(Entity):
             # **Trigger Emergency Landing**
             self.tello.emergency()
     
-    def update_movement(self):
+    def update_movement(self) -> None:
         self.velocity += self.acceleration
 
         if self.velocity.length() > self.max_speed:
@@ -566,6 +596,7 @@ class UrsinaAdapter(Entity):
             self.drone.y -= delta
             self.tello.altitude -= delta
 
+    # TODO: Is this Radians or Degrees? We should put a suffix in the argument name
     def rotate(self, angle: float) -> None:
         self.tello.rotate(angle)
         self.drone.rotation_y = lerp(self.drone.rotation_y, self.drone.rotation_y + angle, 0.2)  
@@ -585,6 +616,7 @@ class UrsinaAdapter(Entity):
         self.drone.rotation_y += yaw_velocity_ms * 0.05  # Smooth rotation update
         print(f"[RC Control] Velocities set -> LR: {left_right_velocity_ms}, FB: {forward_backward_velocity_ms}, UD: {up_down_velocity_ms}, Yaw: {yaw_velocity_ms}")
 
+    # TODO: Is this Radians or Degrees? We should put a suffix in the argument name
     def curve_xyz_speed(self, x1: float, y1: float, z1: float, x2: float, y2: float, z2: float, speed: float) -> None:
         if self.ursina_adapter and self.is_flying:
 
@@ -668,12 +700,12 @@ class UrsinaAdapter(Entity):
         
         print("Drone is already on the ground")
         
-    def get_latest_frame(self) -> :
+    def get_latest_frame(self) -> MatLike:
         """Return the latest frame directly"""
-        if self.latest_frame is not None:
-            return cv2.cvtColor(self.latest_frame, cv2.COLOR_BGR2RGB)
-        print("[Get Frame] No latest frame available.")
-        return None
+        if self.latest_frame is None:
+            raise Exception("No latest frame available.")
+        return cv2.cvtColor(self.latest_frame, cv2.COLOR_BGR2RGB)
+
           
     def capture_frame(self):
         """Capture and save the latest FPV frame from update()"""
@@ -712,7 +744,9 @@ class UrsinaAdapter(Entity):
     def run(self) -> None:
         self.app.run()
     
-    def tick(self):
+    # TODO: I think better the client has exclusive control over controls.
+    # if we need keyboard control we could have a keyboard client that sends commands to the sim server
+    def tick(self) -> None:
         if not self.state.is_connected:
             return 
         if held_keys['shift']:
