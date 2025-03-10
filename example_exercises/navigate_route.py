@@ -1,6 +1,6 @@
 "Here try to create a script that navigates the drone through a course."
 
-from tello_client import TelloSimClient
+from tello_sim_client import TelloSimClient
 import time
 
 # Create a Tello instance

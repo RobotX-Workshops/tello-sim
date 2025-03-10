@@ -5,7 +5,7 @@ from .ursina_adapter import UrsinaAdapter
 class TelloDroneSim:
     def __init__(self):
         self._ursina_adapter = UrsinaAdapter()
-        self.sever = CommandServer(self._ursina_adapter)
+        self._server = CommandServer(self._ursina_adapter)
         
     @property
     def state(self):
@@ -13,9 +13,8 @@ class TelloDroneSim:
 
     def start(self):
         self._ursina_adapter.run()
-        self.sever.listen()
+        self._server.listen()
         
-        
-
-sim = TelloDroneSim()
-sim.start()
+    
+    def update(self) -> None:
+        self._ursina_adapter.update()

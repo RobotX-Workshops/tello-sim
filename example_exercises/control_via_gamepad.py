@@ -19,7 +19,7 @@ script_dir = os.path.dirname(__file__)
 parent_dir = os.path.join(script_dir, "..")
 sys.path.append(parent_dir)
 
-from tello_client import TelloSimClient
+from tello_sim_client import TelloSimClient
 
 from services.tello_command_dispatcher import TelloCommandDispatcher
 from services.tello_connector import TelloConnector

@@ -1,13 +1,11 @@
-# Not verified working on normal Tello!
-
-from tello_client import TelloSimClient
+from tello_sim_client import TelloSimClient
 
 import time
 
-ROTATION_DEGREES = 90
+ROTATION_DEGREES = 180
 
 # Create a Tello instance
-tello = Tello()
+tello = TelloSimClient()
 
 # Connect to Tello
 tello.connect()
@@ -31,11 +29,15 @@ tello.takeoff()
 
 pause()
 
-tello.go_xyz_speed(10, 10, 10, 10)
+print(f"Rotating clockwise {ROTATION_DEGREES} degrees")
+tello.rotate_clockwise(ROTATION_DEGREES)
 
 pause()
 
-tello.curve_xyz_speed(10, 10, 10, 20, 20, 20, 10)
+print(f"Rotating counter clockwise {ROTATION_DEGREES} degrees")
+tello.rotate_counter_clockwise(ROTATION_DEGREES)
+
+pause()
 
 print("Landing")
 # Land

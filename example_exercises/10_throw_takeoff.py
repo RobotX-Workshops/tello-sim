@@ -1,6 +1,6 @@
 # Not verified working on normal Tello!
 
-from tello_client import TelloSimClient
+from tello_sim_client import TelloSimClient
 
 import time
 

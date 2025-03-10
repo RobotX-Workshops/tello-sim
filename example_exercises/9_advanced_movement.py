@@ -1,9 +1,10 @@
-from tello_client import TelloSimClient
+# Not verified working on normal Tello!
+
+from tello_sim_client import TelloSimClient
 
 import time
 
 ROTATION_DEGREES = 90
-HIGHT_CM = 10 
 
 # Create a Tello instance
 tello = Tello()
@@ -24,31 +25,17 @@ def pause():
         time.sleep(1)
 
 
-def warn_of_flip(direction: str):
-    print("WARNING!")
-    print(f"Flipping {direction} in ...")
-    for i in range(3, 0, -1):
-        print(i)
-        time.sleep(1)
-    flip_func = getattr(tello, f"flip_{direction}")
-    flip_func()
-
-
 # Takeoff
 print("Take off")
 tello.takeoff()
 
-tello.move_up(HIGHT_CM)
+pause()
 
-warn_of_flip("left")
-
-warn_of_flip("right")
-
-warn_of_flip("forward")
-
-warn_of_flip("back")
+tello.go_xyz_speed(10, 10, 10, 10)
 
 pause()
+
+tello.curve_xyz_speed(10, 10, 10, 20, 20, 20, 10)
 
 print("Landing")
 # Land
