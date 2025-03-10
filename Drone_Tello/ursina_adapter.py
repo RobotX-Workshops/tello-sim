@@ -716,9 +716,11 @@ class UrsinaAdapter(Entity):
         else:
             print(" Drone simulator not connected.")
     
-    def launch(self) -> None:
+    def run(self) -> None:
         self.app.run()
-        ## Start a new thread for the Ursina app and use the app.run() in a while loop for the update logic
+        ## Start a new thread for the Ursina app and use the app.step() in a while loop for the update logic
+        while self.is_connected:
+            self.app.step()
     
         
 

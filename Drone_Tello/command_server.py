@@ -209,15 +209,7 @@ class CommandServer:
         if self.ursina_adapter:
             self.is_connected = False
             application.quit()
-    
-
-    def run(self):
-        """Starts the server and listens for commands while running the Simulator."""
-        self.ursina_adapter.run()
-        threading.Thread(target=self.listen, daemon=True).start()
-        
-        
-        
+      
     def listen(self) -> None:
         """
         Listens for commands to send to the Simulator
