@@ -1,4 +1,4 @@
-from tello_sim.tello_drone_sim import TelloDroneSim
+from .tello_drone_sim import TelloDroneSim
 
 
 sim = TelloDroneSim()

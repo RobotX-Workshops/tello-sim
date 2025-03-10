@@ -1,14 +1,13 @@
 import os
 import socket
-from time import time, sleep
+from time import time
 import cv2
-
 from tello_drone_sim import UrsinaAdapter
 
         
 class CommandServer:
     """
-    Serves a TCP connections to receive commands and forward controls to the simulator.
+    Serves a TCP connections to receive and parse commands and forward controls to the simulator.
     """
    
     def __init__(self, ursina_adapter: UrsinaAdapter):
@@ -16,23 +15,10 @@ class CommandServer:
         self.start_time = time()
         self.last_time = self.start_time
         self.latest_frame = None
+        self._recording_folder = "recordings"
         
-        if not os.path.exists(self.recording_folder):
-            os.makedirs(self.recording_folder)
-
-    def connect(self):
-        """Simulate connecting to the drone."""
-        if not self.is_connected:
-            print("Tello Simulator: Connecting...")
-            sleep(1)  
-            self.is_connected = True
-            print("Tello Simulator: Connection successful! Press 'Shift' to take off.")
-
-    def takeoff(self):
-        """Simulate takeoff only if connected."""
-        if not self.is_connected:
-            raise Exception("Drone not connected. Cannot take off.")
-        self._ursina_adapter.takeoff()
+        if not os.path.exists(self._recording_folder):
+            os.makedirs(self._recording_folder)
 
     def streamon(self):
         """Start capturing screenshots and enable FPV video preview."""
@@ -64,13 +50,11 @@ class CommandServer:
             return cv2.cvtColor(self.latest_frame, cv2.COLOR_BGR2RGB)
         print("[Get Frame] No latest frame available.")
         return None
-
-
     
     def get_frame_read(self) -> None:
         """Open the folder containing saved frames"""
-        os.startfile(self.recording_folder)  # Open folder in File Explorer
-        print(f"Opened recording folder: {self.recording_folder}")
+        os.startfile(self._recording_folder)  # Open folder in File Explorer
+        print(f"Opened recording folder: {self._recording_folder}")
     
     def get_battery(self):
         elapsed_time = time() - self.start_time
@@ -181,17 +165,6 @@ class CommandServer:
             duration = abs(delta) * 1  
             self._ursina_adapter.drone.animate('y', target_altitude, duration=duration, curve=curve.in_out_quad)
             self.altitude = target_altitude
-            
-
-    def go_xyz_speed(self, x, y, z, speed):
-        # TODO: this logic needs moving to the ursina adapter
-        if self._ursina_adapter and self._ursina_adapter.is_flying:
-            print(f"Tello Simulator: GO command to X:{x}, Y:{y}, Z:{z} at speed {speed}")
-            duration = max(1, speed / 10)
-            target_position = self._ursina_adapter.drone.position + Vec3(x / 10, y / 10, z / 10)
-            self._ursina_adapter.drone.animate_position(target_position, duration=duration, curve=curve.in_out_quad)
-        else:
-            print("Tello Simulator: Cannot execute GO command. Drone not flying.")
 
     def curve_xyz_speed(self, x1: float, y1: float, z1: float, x2: float, y2: float, z2: float, speed: float) -> None:
         self._ursina_adapter.curve_xyz_speed(x1, y1, z1, x2, y2, z2, speed)
@@ -219,15 +192,15 @@ class CommandServer:
         print("[Command Listener] Listening on port 9999...")
 
         while True:
-            conn, addr = server.accept()
+            conn, _ = server.accept()
             data = conn.recv(1024).decode()
             if data:
                 print(f"[Command Listener] Received command: {data}")
                 
                 if data == "connect":
-                    self.connect()
+                    self._ursina_adapter.connect()
                 elif data == "takeoff":
-                    self.takeoff()
+                    self._ursina_adapter.takeoff()
                 elif data == "land":
                     self.land()
                 elif data == "flip_forward":
@@ -288,7 +261,7 @@ class CommandServer:
                 elif data.startswith("go"):
                     try:
                         _, x, y, z, speed = data.split()
-                        self.go_xyz_speed(float(x), float(y), float(z), float(speed))
+                        self._ursina_adapter.go_xyz_speed(float(x), float(y), float(z), float(speed))
                     except ValueError:
                         print("[Error] Invalid go command format")
 

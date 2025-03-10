@@ -21,7 +21,7 @@ from ursina import (
     raycast,
     lerp,
 )
-from time import time
+from time import sleep, time
 from cv2.typing import MatLike
 
 
@@ -264,7 +264,6 @@ class UrsinaAdapter(Entity):
             rotation=(0, -90, 0),  
         )
 
-        
         Entity(
             model='entities/dirty_leaking_concrete_wall.glb',
             scale=(25, 20, 30),  
@@ -273,7 +272,6 @@ class UrsinaAdapter(Entity):
             collider='box',
             cast_shadow=True
         )
-
         
         Entity(
             model='entities/dirty_leaking_concrete_wall.glb',
@@ -314,6 +312,14 @@ class UrsinaAdapter(Entity):
         self.tilt_smoothness = 0.05  
 
         self.create_meters()
+        
+    def connect(self):
+        """Simulate connecting to the drone."""
+        if not self.is_connected:
+            print("Tello Simulator: Connecting...")
+            sleep(1)  
+            self.is_connected = True
+            print("Tello Simulator: Connection successful! Press 'Shift' to take off.")
 
     def get_current_fpv_view(self):
         """ Capture the current FPV camera view and return it as a texture """
@@ -552,7 +558,17 @@ class UrsinaAdapter(Entity):
             self.drone_camera.rotation_z = 0  # Prevent roll tilting
 
         self.update_meters()
-     
+        
+        def go_xyz_speed(self, x: float, y: float, z:float, speed_ms: float) -> None:
+            # TODO: this logic needs moving to the ursina adapter
+            if self._ursina_adapter and self._ursina_adapter.is_flying:
+                print(f"Tello Simulator: GO command to X:{x}, Y:{y}, Z:{z} at speed {speed_ms}")
+                duration = max(1, speed_ms / 10)
+                target_position = self._ursina_adapter.drone.position + Vec3(x / 10, y / 10, z / 10)
+                self._ursina_adapter.drone.animate_position(target_position, duration=duration, curve=curve.in_out_quad)
+            else:
+                print("Tello Simulator: Cannot execute GO command. Drone not flying.")
+        
     def move(self, direction: Literal["forward", "backward", "left", "right"], distance: float) -> None:
         self.tello.move(direction, distance)
         scale_factor = distance/10
@@ -656,7 +672,6 @@ class UrsinaAdapter(Entity):
             print("Tello Simulator: Cannot execute CURVE command. Drone not flying.")
 
     def takeoff(self) -> None:
-    
         if not self.is_flying:
             print("Tello Simulator: Taking off...")
             
