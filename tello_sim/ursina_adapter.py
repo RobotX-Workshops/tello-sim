@@ -1,3 +1,4 @@
+from tkinter import Image
 from typing import Literal
 import cv2
 from ursina import *
@@ -715,12 +716,12 @@ class UrsinaAdapter(Entity):
         if not self.state.is_connected:
             return 
         if held_keys['shift']:
-            if not drone_sim.tello.is_flying:
-                drone_sim.tello.takeoff()
+            if not self.tello.is_flying:
+                self.tello.takeoff()
             else:
-                drone_sim.change_altitude("up")
-        drone_sim.update_takeoff_indicator()
-        if drone_sim.tello.stream_active:
+                self.change_altitude("up")
+        self.update_takeoff_indicator()
+        if self.tello.stream_active:
             width, height = int(window.size[0]), int(window.size[1])
             try:
                 pixel_data = glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE)
@@ -729,51 +730,51 @@ class UrsinaAdapter(Entity):
                     image = image.transpose(Image.FLIP_TOP_BOTTOM)
                     frame = cv2.cvtColor(np.array(image), cv2.COLOR_RGBA2BGR)
                     
-                    drone_sim.tello.latest_frame = frame.copy()
+                    self.tello.latest_frame = frame.copy()
                     #cv2.imshow("Tello FPV Stream", frame)
                     if cv2.waitKey(1) & 0xFF == ord('q'):
-                        drone_sim.tello.stream_active = False
+                        self.tello.stream_active = False
                         cv2.destroyAllWindows()
                         print("[FPV] FPV preview stopped.")
             except Exception as e:
                 print(f"[FPV] OpenGL read error: {e}")
         
-        if not drone_sim.tello.is_flying:
-            drone_sim.camera_holder.position = drone_sim.drone.position + Vec3(0, 3, -7)
+        if not self.tello.is_flying:
+            self.camera_holder.position = self.drone.position + Vec3(0, 3, -7)
             
             return
         
         moving = False
         rolling = False
         
-        if drone_sim.tello.stream_active:
-            drone_sim.tello.capture_frame()
+        if self.tello.stream_active:
+            self.tello.capture_frame()
         
         if held_keys['w']:
-            drone_sim.move("forward")
+            self.move("forward")
             moving = True
         if held_keys['s']:
-            drone_sim.move("backward")
+            self.move("backward")
             moving = True
         if held_keys['a']:
-            drone_sim.move("left")
+            self.move("left")
             rolling = True
         if held_keys['d']:
-            drone_sim.move("right")
+            self.move("right")
             rolling = True
         if held_keys['j']:
-            drone_sim.rotate(-drone_sim.rotation_speed)
+            self.rotate(-self.rotation_speed)
         if held_keys['l']:
-            drone_sim.rotate(drone_sim.rotation_speed)
+            self.rotate(self.rotation_speed)
         
         if held_keys['control']:
-            drone_sim.change_altitude("down")
+            self.change_altitude("down")
         if not moving:
-            drone_sim.pitch_angle = 0  # Reset pitch when not moving
+            self.pitch_angle = 0  # Reset pitch when not moving
         
         if not rolling:
-            drone_sim.roll_angle = 0  # Reset roll when not rolling
+            self.roll_angle = 0  # Reset roll when not rolling
         
 
-        drone_sim.update_movement()
-        drone_sim.update_pitch_roll()
+        self.update_movement()
+        self.update_pitch_roll()
