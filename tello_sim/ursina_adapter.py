@@ -59,7 +59,6 @@ class UrsinaAdapter(Entity):
         self.last_screenshot_time = None  
         self.last_altitude = self.altitude  
 
-
         self.dynamic_island = Entity(
             parent=camera.ui,
             model=Quad(radius=0.09),  # Rounded rectangle
@@ -122,7 +121,6 @@ class UrsinaAdapter(Entity):
             collider='box',
             cast_shadow=True
         )
-
         
         self.truck = Entity(
             model='entities/road_roller.glb',
@@ -299,13 +297,13 @@ class UrsinaAdapter(Entity):
         self.drone_camera.rotation = self.third_person_rotation
         self.is_flying = False
 
-        self.velocity = Vec3(0, 0, 0)
-        self.acceleration = Vec3(0, 0, 0)
-        self.calculated_acceleration = Vec3(0, 0, 0)
-        self.last_velocity_accel = Vec3(0, 0, 0)
+        self.velocity: Vec3 = Vec3(0, 0, 0)
+        self.acceleration: Vec3 = Vec3(0, 0, 0)
+        self.calculated_acceleration: Vec3 = Vec3(0, 0, 0)
+        self.last_velocity_accel: Vec3 = Vec3(0, 0, 0)
         self.last_time_accel = time()
-        self.drag = 0.93  
-        self.rotation_speed = 5  
+        self.drag: float = 0.93  
+        self.rotation_speed: float = 5  
         self.max_speed = 1.8  
         self.accel_force = 0.65  
 
@@ -509,13 +507,16 @@ class UrsinaAdapter(Entity):
     
     def update_movement(self) -> None:
         self.velocity += self.acceleration
+        
+        if self.velocity is None:
+            raise Exception("Velocity is None")
 
         if self.velocity.length() > self.max_speed:
             self.velocity = self.velocity.normalized() * self.max_speed
 
         self.velocity *= self.drag
         new_position = self.drone.position + self.velocity
-        hit_info = raycast(self.drone.position, self.velocity.normalized(), distance=self.velocity.length(), ignore=(self.drone,))
+        hit_info = raycast(self.drone.position, self.velocity.normalized(), distance=self.velocity.length(), ignore=(self.drone,)) # type: ignore
 
         if not hit_info.hit:
             self.drone.position = new_position  
