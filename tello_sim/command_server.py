@@ -1,6 +1,5 @@
 import os
 import socket
-import threading
 from time import time, sleep
 import cv2
 
@@ -13,9 +12,10 @@ class CommandServer:
     """
    
     def __init__(self, ursina_adapter: UrsinaAdapter):
-        self.ursina_adapter = ursina_adapter
-
+        self._ursina_adapter = ursina_adapter
+        self.start_time = time()
         self.last_time = self.start_time
+        self.latest_frame = None
         
         if not os.path.exists(self.recording_folder):
             os.makedirs(self.recording_folder)
@@ -32,7 +32,7 @@ class CommandServer:
         """Simulate takeoff only if connected."""
         if not self.is_connected:
             raise Exception("Drone not connected. Cannot take off.")
-        self.ursina_adapter.takeoff()
+        self._ursina_adapter.takeoff()
 
     def streamon(self):
         """Start capturing screenshots and enable FPV video preview."""
@@ -42,8 +42,8 @@ class CommandServer:
             self.saved_frames = []
             self.last_screenshot_time = time() + 3  # First capture after 3 sec
 
-            if self.ursina_adapter:
-                self.ursina_adapter.toggle_camera_view()
+            if self._ursina_adapter:
+                self._ursina_adapter.toggle_camera_view()
 
             print("Tello Simulator: Video streaming started, FPV mode activated.")
             
@@ -55,8 +55,8 @@ class CommandServer:
             cv2.destroyAllWindows()
             print(f"[FPV] Video streaming stopped. Frames captured: {len(self.saved_frames)}")
 
-            if self.ursina_adapter:
-                self.ursina_adapter.toggle_camera_view()
+            if self._ursina_adapter:
+                self._ursina_adapter.toggle_camera_view()
 
     def get_latest_frame(self) -> :
         """Return the latest frame directly"""
@@ -83,11 +83,11 @@ class CommandServer:
 
     def land(self):
         """Initiate a smooth landing animation to altitude = 3"""
-        self.ursina_adapter.land()
+        self._ursina_adapter.land()
 
     def emergency(self):
         """Initiate an emergency landing by immediately stopping and descending to altitude = 3."""
-        self.ursina_adapter.emergency()
+        self._ursina_adapter.emergency()
         print("Tello Simulator: Emergency stop initiated!")
     
     def move(self, direction, distance=10):
@@ -95,36 +95,35 @@ class CommandServer:
 
     def get_pitch(self) -> int:
         
-        if self.ursina_adapter:
-            return int(self.ursina_adapter.drone.rotation_x) 
+        if self._ursina_adapter:
+            return int(self._ursina_adapter.drone.rotation_x) 
         return 0
 
     def get_roll(self) -> int:
         
-        if self.ursina_adapter:
-            return int(self.ursina_adapter.drone.rotation_z)  
+        if self._ursina_adapter:
+            return int(self._ursina_adapter.drone.rotation_z)  
         return 0
 
     def get_flight_time(self) -> int:
         """Return total flight time in seconds."""
-        if self.is_flying:
+        if self._ursina_adapter.is_flying:
             return int(time() - self.start_time)  
         return 0  # Not flying
 
     def get_speed_x(self) -> int:
-        
-        if self.ursina_adapter:
-            return int(self.ursina_adapter.velocity.x * 3.6)  
+        if self._ursina_adapter:
+            return int(self._ursina_adapter.velocity.x * 3.6)  
         return 0
 
     def get_speed_y(self) -> int:
         
-        if self.ursina_adapter:
+        if self._ursina_adapter:
             current_time = time()
             elapsed_time = current_time - self.last_time
 
             if elapsed_time > 0:  
-                current_altitude = (self.ursina_adapter.drone.y * 0.1) - 0.3
+                current_altitude = (self._ursina_adapter.drone.y * 0.1) - 0.3
                 vertical_speed = (current_altitude - self.last_altitude) / elapsed_time  
                 self.last_altitude = current_altitude
                 self.last_time = current_time
@@ -134,42 +133,42 @@ class CommandServer:
 
     def get_speed_z(self) -> int:
         
-        if self.ursina_adapter:
-            return int(self.ursina_adapter.velocity.z * 3.6)  
+        if self._ursina_adapter:
+            return int(self._ursina_adapter.velocity.z * 3.6)  
         return 0
 
     def get_acceleration_x(self) -> float:
         """Return the current acceleration in the X direction."""
-        if self.ursina_adapter:
-            return self.ursina_adapter.acceleration.x * 100  
+        if self._ursina_adapter:
+            return self._ursina_adapter.acceleration.x * 100  
         return 0.0
 
     def get_acceleration_y(self) -> float:
         """Return the current acceleration in the Y direction."""
-        if self.ursina_adapter:
-            return self.ursina_adapter.acceleration.y * 100  
+        if self._ursina_adapter:
+            return self._ursina_adapter.acceleration.y * 100  
         return 0.0
 
     def get_acceleration_z(self) -> float:
         """Return the current acceleration in the Z direction."""
-        if self.ursina_adapter:
-            return self.ursina_adapter.acceleration.z * 100  
+        if self._ursina_adapter:
+            return self._ursina_adapter.acceleration.z * 100  
         return 0.0
     
     def rotate_smooth(self, angle):
         
-        if self.ursina_adapter:
-            current_yaw = self.ursina_adapter.drone.rotation_y
+        if self._ursina_adapter:
+            current_yaw = self._ursina_adapter.drone.rotation_y
             target_yaw = current_yaw + angle
             duration = abs(angle) / 90  
-            self.ursina_adapter.drone.animate('rotation_y', target_yaw, duration=duration, curve=curve.linear)
+            self._ursina_adapter.drone.animate('rotation_y', target_yaw, duration=duration, curve=curve.linear)
             print(f"Tello Simulator: Smoothly rotating {angle} degrees over {duration:.2f} seconds.")
 
     def change_altitude_smooth(self, direction: str, distance: float):
         
-        if self.ursina_adapter:
+        if self._ursina_adapter:
             delta = distance / 20  
-            current_altitude = self.ursina_adapter.drone.y
+            current_altitude = self._ursina_adapter.drone.y
 
             if direction == "up":
                 target_altitude = current_altitude + delta
@@ -180,33 +179,33 @@ class CommandServer:
                 return
 
             duration = abs(delta) * 1  
-            self.ursina_adapter.drone.animate('y', target_altitude, duration=duration, curve=curve.in_out_quad)
+            self._ursina_adapter.drone.animate('y', target_altitude, duration=duration, curve=curve.in_out_quad)
             self.altitude = target_altitude
             
 
     def go_xyz_speed(self, x, y, z, speed):
-        if self.ursina_adapter and self.is_flying:
+        # TODO: this logic needs moving to the ursina adapter
+        if self._ursina_adapter and self._ursina_adapter.is_flying:
             print(f"Tello Simulator: GO command to X:{x}, Y:{y}, Z:{z} at speed {speed}")
             duration = max(1, speed / 10)
-            target_position = self.ursina_adapter.drone.position + Vec3(x / 10, y / 10, z / 10)
-            self.ursina_adapter.drone.animate_position(target_position, duration=duration, curve=curve.in_out_quad)
+            target_position = self._ursina_adapter.drone.position + Vec3(x / 10, y / 10, z / 10)
+            self._ursina_adapter.drone.animate_position(target_position, duration=duration, curve=curve.in_out_quad)
         else:
             print("Tello Simulator: Cannot execute GO command. Drone not flying.")
 
     def curve_xyz_speed(self, x1: float, y1: float, z1: float, x2: float, y2: float, z2: float, speed: float) -> None:
-        self.ursina_adapter.curve_xyz_speed(x1, y1, z1, x2, y2, z2, speed)
-
+        self._ursina_adapter.curve_xyz_speed(x1, y1, z1, x2, y2, z2, speed)
 
     def send_rc_control(self, left_right_velocity_ms: float, forward_backward_velocity_ms: float, up_down_velocity_ms: float, yaw_velocity_ms: float) -> None:
-        if not self.ursina_adapter:
+        if not self._ursina_adapter:
             raise Exception("Drone simulator not connected.")
-        self.ursina_adapter.send_rc_control(left_right_velocity_ms, forward_backward_velocity_ms, up_down_velocity_ms, yaw_velocity_ms)
+        self._ursina_adapter.send_rc_control(left_right_velocity_ms, forward_backward_velocity_ms, up_down_velocity_ms, yaw_velocity_ms)
 
     
     def end(self):
-        
+        # TODO: this logic needs moving to the ursina adapter
         print("Tello Simulator: Ending simulation...")
-        if self.ursina_adapter:
+        if self._ursina_adapter:
             self.is_connected = False
             application.quit()
       
@@ -232,13 +231,13 @@ class CommandServer:
                 elif data == "land":
                     self.land()
                 elif data == "flip_forward":
-                    self.ursina_adapter.animate_flip(direction="forward")
+                    self._ursina_adapter.animate_flip(direction="forward")
                 elif data == "flip_back":
-                     self.ursina_adapter.animate_flip(direction="back")
+                     self._ursina_adapter.animate_flip(direction="back")
                 elif data == "flip_left":
-                     self.ursina_adapter.animate_flip(direction="left")
+                     self._ursina_adapter.animate_flip(direction="left")
                 elif data == "flip_right":
-                    self.ursina_adapter.animate_flip(direction="right")
+                    self._ursina_adapter.animate_flip(direction="right")
                 elif data == "streamon":
                     self.streamon()
                 elif data == "streamoff":
@@ -248,22 +247,22 @@ class CommandServer:
                 elif data.startswith("forward"):
                     parts = data.split()
                     distance = float(parts[1]) if len(parts) > 1 else 10
-                    self.ursina_adapter.move("forward", distance)
+                    self._ursina_adapter.move("forward", distance)
 
                 elif data.startswith("backward"):
                     parts = data.split()
                     distance = float(parts[1]) if len(parts) > 1 else 10
-                    self.ursina_adapter.move("backward", distance)
+                    self._ursina_adapter.move("backward", distance)
 
                 elif data.startswith("left"):
                     parts = data.split()
                     distance = float(parts[1]) if len(parts) > 1 else 10
-                    self.ursina_adapter.move("left", distance)
+                    self._ursina_adapter.move("left", distance)
 
                 elif data.startswith("right"):
                     parts = data.split()
                     distance = float(parts[1]) if len(parts) > 1 else 10
-                    self.ursina_adapter.move("right", distance)
+                    self._ursina_adapter.move("right", distance)
 
                 elif data.startswith("up"):
                     parts = data.split()
@@ -316,7 +315,7 @@ class CommandServer:
                 elif data == "get_distance_tof":
                     conn.send(str(100).encode())  
                 elif data == "get_height":
-                    height = (self.ursina_adapter.drone.y / 10) - 0.3
+                    height = (self._ursina_adapter.drone.y / 10) - 0.3
                     conn.send(f"{height:.1f}".encode())
                 elif data == "get_flight_time":
                     conn.send(str(self.get_flight_time()).encode())
@@ -327,21 +326,21 @@ class CommandServer:
                 elif data == "get_speed_z":
                     conn.send(str(self.get_speed_z()).encode())
                 elif data == "get_acceleration_x":
-                    conn.send(str(self.ursina_adapter.calculated_acceleration.x * 100).encode())  
+                    conn.send(str(self._ursina_adapter.calculated_acceleration.x * 100).encode())  
                 elif data == "get_acceleration_y":
-                    conn.send(str(self.ursina_adapter.calculated_acceleration.y * 100).encode())
+                    conn.send(str(self._ursina_adapter.calculated_acceleration.y * 100).encode())
                 elif data == "get_acceleration_z":
-                    conn.send(str(self.ursina_adapter.calculated_acceleration.z * 100).encode())
+                    conn.send(str(self._ursina_adapter.calculated_acceleration.z * 100).encode())
                 elif data == "get_pitch":
                     conn.send(str(self.get_pitch()).encode())
                 elif data == "get_roll":
                     conn.send(str(self.get_roll()).encode())
                 elif data == "get_yaw":
-                    raw_yaw = self.ursina_adapter.drone.rotation_y
+                    raw_yaw = self._ursina_adapter.drone.rotation_y
                     yaw = ((raw_yaw + 180) % 360) - 180
                     conn.send(str(yaw).encode())
                 elif data == "query_attitude":
-                    raw_yaw = self.ursina_adapter.drone.rotation_y
+                    raw_yaw = self._ursina_adapter.drone.rotation_y
                     yaw = ((raw_yaw + 180) % 360) - 180
                     attitude = {
                         "pitch": self.get_pitch(),
@@ -350,17 +349,17 @@ class CommandServer:
                     }
                     conn.send(str(attitude).encode())
                 elif data == "get_current_state":
-                    state = "flying" if self.is_flying else "landed"
+                    state = "flying" if self._ursina_adapter.is_flying else "landed"
                     conn.send(state.encode())
 
                 elif data == "get_latest_frame":
-                    return self.ursina_adapter.get_latest_frame()
+                    conn.send(self._ursina_adapter.get_latest_frame())
                 elif data == "capture_frame":
-                    self.ursina_adapter.capture_frame()
+                    self._ursina_adapter.capture_frame()
                 elif data.startswith("set_speed"):
                     try:
                         _, speed = data.split()
-                        self.ursina_adapter.set_speed(int(speed))
+                        self._ursina_adapter.set_speed(int(speed))
                     except ValueError:
                         print("[Error] Invalid set_speed command format")
 
