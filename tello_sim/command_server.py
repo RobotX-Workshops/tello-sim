@@ -1,5 +1,7 @@
 import os
 import socket
+from ursina import *
+from cv2.typing import MatLike
 from time import time
 import cv2
 from tello_drone_sim import UrsinaAdapter
@@ -44,7 +46,7 @@ class CommandServer:
             if self._ursina_adapter:
                 self._ursina_adapter.toggle_camera_view()
 
-    def get_latest_frame(self) -> :
+    def get_latest_frame(self) -> MatLike:
         """Return the latest frame directly"""
         if self.latest_frame is not None:
             return cv2.cvtColor(self.latest_frame, cv2.COLOR_BGR2RGB)
