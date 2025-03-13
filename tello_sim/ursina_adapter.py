@@ -36,7 +36,7 @@ class UrsinaAdapter():
     def __init__(self):
         super().__init__()
         
-        #self.app = Ursina()
+        self.app = Ursina()
         window.color = color.rgb(135, 206, 235)  
         window.fullscreen = False
         window.borderless = False
@@ -315,6 +315,9 @@ class UrsinaAdapter():
         self.tilt_smoothness = 0.05  
 
         self.create_meters()
+        
+    def run(self):
+        self.app.run()
         
     def connect(self):
         """Simulate connecting to the drone."""
@@ -640,11 +643,11 @@ class UrsinaAdapter():
         
     def go_xyz_speed(self, x: float, y: float, z:float, speed_ms: float) -> None:
         # TODO: this logic needs moving to the ursina adapter
-        if self._ursina_adapter and self._ursina_adapter.is_flying:
+        if self.is_flying:
             print(f"Tello Simulator: GO command to X:{x}, Y:{y}, Z:{z} at speed {speed_ms}")
             duration = max(1, speed_ms / 10)
-            target_position = self._ursina_adapter.drone.position + Vec3(x / 10, y / 10, z / 10)
-            self._ursina_adapter.drone.animate_position(target_position, duration=duration, curve=curve.in_out_quad)
+            target_position = self.drone.position + Vec3(x / 10, y / 10, z / 10)
+            self.drone.animate_position(target_position, duration=duration, curve=curve.in_out_quad)
         else:
             print("Tello Simulator: Cannot execute GO command. Drone not flying.")
         
@@ -823,10 +826,6 @@ class UrsinaAdapter():
         print("Tello Simulator: Ending simulation...")
         self.is_connected = False
         application.quit() #TODO: forgot where this came from
-      
-    
-    # def run(self) -> None:
-    #     self.app.run()
     
     # TODO: I think better the client has exclusive control over controls.
     # if we need keyboard control we could have a keyboard client that sends commands to the sim server
