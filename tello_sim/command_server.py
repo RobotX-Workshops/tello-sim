@@ -4,7 +4,8 @@ from ursina import *
 from cv2.typing import MatLike
 from time import time
 import cv2
-from tello_drone_sim import UrsinaAdapter
+from ursina_adapter import UrsinaAdapter
+
 
         
 class CommandServer:
@@ -17,6 +18,7 @@ class CommandServer:
         self.start_time = time()
         self.last_time = self.start_time
         self.latest_frame = None
+        self.last_altitude = 0
         self._recording_folder = "recordings"
         
         if not os.path.exists(self._recording_folder):

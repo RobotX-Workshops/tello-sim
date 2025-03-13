@@ -35,7 +35,7 @@ class UrsinaAdapter(Entity):
     def __init__(self):
         super().__init__()
         
-        self.app = Ursina()
+        #self.app = Ursina()
         window.color = color.rgb(135, 206, 235)  
         window.fullscreen = False
         window.borderless = False
@@ -60,7 +60,7 @@ class UrsinaAdapter(Entity):
         self.latest_frame = None
         self.last_screenshot_time = None  
         self.last_altitude = self.altitude  
-
+    
         self.dynamic_island = Entity(
             parent=camera.ui,
             model=Quad(radius=0.09),  # Rounded rectangle
@@ -331,7 +331,7 @@ class UrsinaAdapter(Entity):
         """Blinking effect for takeoff status"""
         pulse = (sin(time() * 5) + 1) / 2  
 
-        if self.tello.is_flying:
+        if self.is_flying:
             # Sky Blue Glow after Takeoff
             glow_color = color.rgba(100/255, 180/255, 225/255, pulse * 0.6 + 0.4)  
         else:
@@ -397,7 +397,7 @@ class UrsinaAdapter(Entity):
 
         # Altitude meter
         self.altitude_meter = Text(
-            text=f"Altitude: {self.tello.altitude}m",
+            text=f"Altitude: {self.altitude}m",
             position=(0.63, 0.44),
             scale=0.94,
             color=color.white
@@ -458,7 +458,7 @@ class UrsinaAdapter(Entity):
     
     def update_meters(self):
         """Update telemetry meters"""
-        battery = self.tello.get_battery()
+        battery = self.get_battery()
         
         # Update battery fill width with padding
         fill_width = 0.92 * (battery / 100)
@@ -480,17 +480,17 @@ class UrsinaAdapter(Entity):
         # Update altitude
         self.altitude_meter.text = f"Altitude: {((self.drone.y) / 10 - 3/10):.1f}m"
         
-        pitch = self.tello.get_pitch()
-        roll = self.tello.get_roll()
+        pitch = self.get_pitch()
+        roll = self.get_roll()
         self.orientation_text.text = f"Pitch: {pitch}°  Roll: {roll}°"
 
-        flight_time = self.tello.get_flight_time()
+        flight_time = self.get_flight_time()
         self.flight_time_text.text = f"Flight Time: {flight_time}s"
 
         # Update Speed X, Y, Z
-        speed_x = self.tello.get_speed_x()
-        speed_y = self.tello.get_speed_y()
-        speed_z = self.tello.get_speed_z()
+        speed_x = self.get_speed_x()
+        speed_y = self.get_speed_y()
+        speed_z = self.get_speed_z()
         
         self.speed_x_text.text = f"Speed X: {speed_x} km/h"
         self.speed_y_text.text = f"Speed Y: {speed_y} km/h"
@@ -511,7 +511,7 @@ class UrsinaAdapter(Entity):
             print("\n========== Battery Depleted! ==========\n")
 
             # **Trigger Emergency Landing**
-            self.tello.emergency()
+            self.emergency()
     
     def update_movement(self) -> None:
         self.velocity += self.acceleration
@@ -572,7 +572,7 @@ class UrsinaAdapter(Entity):
                 print("Tello Simulator: Cannot execute GO command. Drone not flying.")
         
     def move(self, direction: Literal["forward", "backward", "left", "right"], distance: float) -> None:
-        self.tello.move(direction, distance)
+        self.move(direction, distance)
         scale_factor = distance/10
         if direction == "forward":
             forward_vector = self.drone.forward * self.accel_force * scale_factor
@@ -610,14 +610,14 @@ class UrsinaAdapter(Entity):
         delta = distance / 20
         if direction == "up":
             self.drone.y += delta 
-            self.tello.altitude += delta
+            self.altitude += delta
         elif direction == "down" and self.drone.y > 3:
             self.drone.y -= delta
-            self.tello.altitude -= delta
+            self.altitude -= delta
 
     # TODO: Is this Radians or Degrees? We should put a suffix in the argument name
     def rotate(self, angle: float) -> None:
-        self.tello.rotate(angle)
+        self.rotate(angle)
         self.drone.rotation_y = lerp(self.drone.rotation_y, self.drone.rotation_y + angle, 0.2)  
 
     def update_pitch_roll(self) -> None:
@@ -637,7 +637,7 @@ class UrsinaAdapter(Entity):
 
     # TODO: Is this Radians or Degrees? We should put a suffix in the argument name
     def curve_xyz_speed(self, x1: float, y1: float, z1: float, x2: float, y2: float, z2: float, speed: float) -> None:
-        if self.ursina_adapter and self.is_flying:
+        if self and self.is_flying:
 
 
             print(f"Tello Simulator: CURVE command from ({x1}, {y1}, {z1}) to ({x2}, {x2}, {z2}) at speed {speed}")
@@ -689,12 +689,12 @@ class UrsinaAdapter(Entity):
         if self.is_flying:
             print("Tello Simulator: Drone landing...")
 
-            if self.ursina_adapter:
+            if self:
                 # Get current altitude
-                current_altitude = self.ursina_adapter.drone.y
+                current_altitude = self.drone.y
 
                 
-                self.ursina_adapter.drone.animate('y', 2.6, duration=current_altitude * 0.5, curve=curve.in_out_quad)
+                self.drone.animate('y', 2.6, duration=current_altitude * 0.5, curve=curve.in_out_quad)
 
             self.is_flying = False
             print("Landing initiated")
@@ -705,13 +705,13 @@ class UrsinaAdapter(Entity):
         if self.is_flying:
             print(" Emergency! Stopping all motors and descending immediately!")
 
-            if self.ursina_adapter:
+            if self:
                 # Stop movement 
-                self.ursina_adapter.velocity = Vec3(0, 0, 0)
-                self.ursina_adapter.acceleration = Vec3(0, 0, 0)
+                self.velocity = Vec3(0, 0, 0)
+                self.acceleration = Vec3(0, 0, 0)
 
                 # descent to altitude = 3
-                self.ursina_adapter.drone.animate('y', 2.6, duration=1.5, curve=curve.linear)
+                self.animate('y', 2.6, duration=1.5, curve=curve.linear)
 
             self.is_flying = False
             print("Emergency landing initiated")
@@ -751,29 +751,25 @@ class UrsinaAdapter(Entity):
             print(" Invalid speed! Speed must be between 10 and 100 cm/s.")
             return
 
-        if self.ursina_adapter:
+        if self:
             # Normalize speed
-            self.ursina_adapter.accel_force = (x / 100) * 1.5  
+            self.accel_force = (x / 100) * 1.5  
 
-            print(f" Speed set to {x} cm/s. Acceleration force: {self.ursina_adapter.accel_force}")
+            print(f" Speed set to {x} cm/s. Acceleration force: {self.accel_force}")
         else:
             print(" Drone simulator not connected.")
     
-    def run(self) -> None:
-        self.app.run()
+    # def run(self) -> None:
+    #     self.app.run()
     
     # TODO: I think better the client has exclusive control over controls.
     # if we need keyboard control we could have a keyboard client that sends commands to the sim server
     def tick(self) -> None:
         if not self.state.is_connected:
             return 
-        if held_keys['shift']:
-            if not self.tello.is_flying:
-                self.tello.takeoff()
-            else:
-                self.change_altitude("up")
+        
         self.update_takeoff_indicator()
-        if self.tello.stream_active:
+        if self.stream_active:
             width, height = int(window.size[0]), int(window.size[1])
             try:
                 pixel_data = glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE)
@@ -782,16 +778,16 @@ class UrsinaAdapter(Entity):
                     image = image.transpose(Image.FLIP_TOP_BOTTOM)
                     frame = cv2.cvtColor(np.array(image), cv2.COLOR_RGBA2BGR)
                     
-                    self.tello.latest_frame = frame.copy()
+                    self.latest_frame = frame.copy()
                     #cv2.imshow("Tello FPV Stream", frame)
                     if cv2.waitKey(1) & 0xFF == ord('q'):
-                        self.tello.stream_active = False
+                        self.stream_active = False
                         cv2.destroyAllWindows()
                         print("[FPV] FPV preview stopped.")
             except Exception as e:
                 print(f"[FPV] OpenGL read error: {e}")
         
-        if not self.tello.is_flying:
+        if not self.is_flying:
             self.camera_holder.position = self.drone.position + Vec3(0, 3, -7)
             
             return
@@ -799,28 +795,10 @@ class UrsinaAdapter(Entity):
         moving = False
         rolling = False
         
-        if self.tello.stream_active:
-            self.tello.capture_frame()
+        if self.stream_active:
+            self.capture_frame()
         
-        if held_keys['w']:
-            self.move("forward")
-            moving = True
-        if held_keys['s']:
-            self.move("backward")
-            moving = True
-        if held_keys['a']:
-            self.move("left")
-            rolling = True
-        if held_keys['d']:
-            self.move("right")
-            rolling = True
-        if held_keys['j']:
-            self.rotate(-self.rotation_speed)
-        if held_keys['l']:
-            self.rotate(self.rotation_speed)
         
-        if held_keys['control']:
-            self.change_altitude("down")
         if not moving:
             self.pitch_angle = 0  # Reset pitch when not moving
         
