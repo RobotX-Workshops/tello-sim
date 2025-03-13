@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import logging
 import subprocess
 import platform
@@ -6,6 +7,11 @@ import time
 import socket
 import cv2
 import os
+import numpy as np
+
+@dataclass
+class BackgroundFrameRead():
+    frame: cv2.typing.MatLike
 
 class TelloSimClient:
     def __init__(self, host='localhost', port=9999, auto_start_simulation=True):
@@ -62,14 +68,14 @@ class TelloSimClient:
         except ConnectionRefusedError:
             print(f"[Error] Unable to connect to the simulation at {self.host}:{self.port}")
     
-    def get_frame(self):
+    def get_frame_read(self) -> BackgroundFrameRead:
         """Retrieve the latest frame path from the simulation and load the image."""
         frame_path = self._request_data('get_latest_frame')
         if frame_path != "N/A" and os.path.exists(frame_path):
             image = cv2.imread(frame_path)
             if image is not None:
-                return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        return None
+                return BackgroundFrameRead(frame=cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        return BackgroundFrameRead(frame=np.zeros([300, 400, 3], dtype=np.uint8))
     
     def _request_data(self, command):
         try:

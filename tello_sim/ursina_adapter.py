@@ -827,9 +827,11 @@ class UrsinaAdapter():
         print("Tello Simulator: Ending simulation session...")
         self.is_connected = False
     
-    # TODO: I think better the client has exclusive control over controls.
-    # if we need keyboard control we could have a keyboard client that sends commands to the sim server
+    
     def tick(self) -> None:
+        """
+        Update the simulator state
+        """
         if not self.is_connected:
             return 
        
@@ -839,8 +841,8 @@ class UrsinaAdapter():
             try:
                 pixel_data = glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE)
                 if pixel_data:
-                    image = Image.frombytes("RGBA", (width, height), pixel_data)
-                    image = image.transpose(Image.FLIP_TOP_BOTTOM)
+                    image = Image.frombytes("RGBA", (width, height), pixel_data) # type: ignore
+                    image = image.transpose(Image.FLIP_TOP_BOTTOM) # type: ignore
                     frame = cv2.cvtColor(np.array(image), cv2.COLOR_RGBA2BGR)
                     
                     self.latest_frame = frame.copy()
