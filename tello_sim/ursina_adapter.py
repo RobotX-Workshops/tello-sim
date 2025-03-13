@@ -52,6 +52,7 @@ class UrsinaAdapter():
         self.rotation_angle = 0
         self.last_keys = {}
         self.start_time = time()
+        self.last_time = self.start_time
         self.stream_active = False
         self.is_connected = False
         self.recording_folder = "tello_recording"

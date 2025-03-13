@@ -1,3 +1,4 @@
+import logging
 import subprocess
 import platform
 import sys
@@ -39,7 +40,8 @@ class TelloSimClient:
         try:
             with socket.create_connection((self.host, self.port), timeout=1):
                 return True
-        except (ConnectionRefusedError, socket.timeout, OSError):
+        except (ConnectionRefusedError, socket.timeout, OSError) as ex:
+            logging.error("[Wrapper] Simulation is not running.", ex)
             return False
 
     def _wait_for_simulation(self, timeout=30):
