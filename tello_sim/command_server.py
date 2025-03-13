@@ -51,7 +51,7 @@ class CommandServer:
         self._ursina_adapter.send_rc_control(left_right_velocity_ms, forward_backward_velocity_ms, up_down_velocity_ms, yaw_velocity_ms)
         
     def end(self):
-        self._ursina_adapter.close()
+        self._ursina_adapter.end()
         
     def listen(self) -> None:
         """

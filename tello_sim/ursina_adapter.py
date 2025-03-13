@@ -823,10 +823,9 @@ class UrsinaAdapter():
         self.accel_force = (x / 100) * 1.5  
         print(f" Speed set to {x} cm/s. Acceleration force: {self.accel_force}")
 
-    def close(self) -> None:
-        print("Tello Simulator: Ending simulation...")
+    def end(self) -> None:
+        print("Tello Simulator: Ending simulation session...")
         self.is_connected = False
-        application.quit() #TODO: forgot where this came from
     
     # TODO: I think better the client has exclusive control over controls.
     # if we need keyboard control we could have a keyboard client that sends commands to the sim server
