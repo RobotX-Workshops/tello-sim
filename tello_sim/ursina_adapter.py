@@ -2,6 +2,7 @@ import os
 from tkinter import Image
 from typing import Literal
 import cv2
+import numpy as np
 from ursina import (
     Ursina,
     window,
@@ -25,7 +26,7 @@ from time import sleep, time
 from cv2.typing import MatLike
 
 
-class UrsinaAdapter(Entity):
+class UrsinaAdapter():
     """
     A wrapper for managing the simulator state and drone controls in Ursina.
     """
@@ -329,7 +330,7 @@ class UrsinaAdapter(Entity):
         """Blinking effect for takeoff status"""
         pulse = (sin(time() * 5) + 1) / 2  
 
-        if self.tello.is_flying:
+        if self.is_flying:
             # Sky Blue Glow after Takeoff
             glow_color = color.rgba(100/255, 180/255, 225/255, pulse * 0.6 + 0.4)  
         else:
@@ -359,6 +360,11 @@ class UrsinaAdapter(Entity):
         
         self.drone.rotation_x = 0
         self.drone.rotation_z = 0
+        
+        
+    def _rotate(self, angle):
+        self.rotation_angle += angle
+        print(f"Tello Simulator: Rotating {angle} degrees")
     
     def create_meters(self):
     
@@ -395,7 +401,7 @@ class UrsinaAdapter(Entity):
 
         # Altitude meter
         self.altitude_meter = Text(
-            text=f"Altitude: {self.tello.altitude}m",
+            text=f"Altitude: {self.altitude}m",
             position=(0.63, 0.44),
             scale=0.94,
             color=color.white
@@ -453,10 +459,81 @@ class UrsinaAdapter(Entity):
             start_color.b + (end_color.b - start_color.b) * factor,
             1  # Alpha channel
         )
+        
+    def get_battery(self) -> float:
+        elapsed_time = time() - self.start_time
+        self.battery_level = max(100 - int((elapsed_time / 3600) * 100), 0)  # Reduce battery over 60 min
+        return self.battery_level  
+    
+    
+    def get_flight_time(self) -> int:
+        """Return total flight time in seconds."""
+        if self.is_flying:
+            return int(time() - self.start_time)  
+        return 0  # Not flying
+    
+    def get_pitch(self) -> int:
+        return int(self.drone.rotation_x) 
+
+    def get_roll(self) -> int:
+        return int(self.drone.rotation_z)  
+
+    def get_speed_x(self) -> int:
+        return int(self.velocity.x * 3.6)  
+
+    def get_speed_y(self) -> int:
+        current_time = time()
+        elapsed_time = current_time - self.last_time
+
+        if elapsed_time > 0:  
+            current_altitude = (self.drone.y * 0.1) - 0.3
+            vertical_speed = (current_altitude - self.last_altitude) / elapsed_time  
+            self.last_altitude = current_altitude
+            self.last_time = current_time
+            return int(vertical_speed * 3.6)  
+        return 0
+
+    def get_speed_z(self) -> int:
+        return int(self.velocity.z * 3.6)  
+
+    def get_acceleration_x(self) -> float:
+        """Return the current acceleration in the X direction."""
+        return self.acceleration.x * 100  
+
+    def get_acceleration_y(self) -> float:
+        """Return the current acceleration in the Y direction."""
+        return self.acceleration.y * 100  
+
+    def get_acceleration_z(self) -> float:
+        """Return the current acceleration in the Z direction."""
+        return self.acceleration.z * 100  
+    
+    def rotate_smooth(self, angle):
+        current_yaw = self.drone.rotation_y
+        target_yaw = current_yaw + angle
+        duration = abs(angle) / 90  
+        self.drone.animate('rotation_y', target_yaw, duration=duration, curve=curve.linear)
+        print(f"Tello Simulator: Smoothly rotating {angle} degrees over {duration:.2f} seconds.")
+
+    def change_altitude_smooth(self, direction: str, distance: float):
+        delta = distance / 20  
+        current_altitude = self.drone.y
+
+        if direction == "up":
+            target_altitude = current_altitude + delta
+        elif direction == "down":
+            target_altitude = max(3, current_altitude - delta)  
+        else:
+            print(f"Invalid altitude direction: {direction}")
+            return
+
+        duration = abs(delta) * 1  
+        self.drone.animate('y', target_altitude, duration=duration, curve=curve.in_out_quad)
+        self.altitude = target_altitude
     
     def update_meters(self):
         """Update telemetry meters"""
-        battery = self.tello.get_battery()
+        battery = self.get_battery()
         
         # Update battery fill width with padding
         fill_width = 0.92 * (battery / 100)
@@ -478,17 +555,17 @@ class UrsinaAdapter(Entity):
         # Update altitude
         self.altitude_meter.text = f"Altitude: {((self.drone.y) / 10 - 3/10):.1f}m"
         
-        pitch = self.tello.get_pitch()
-        roll = self.tello.get_roll()
+        pitch = self.get_pitch()
+        roll = self.get_roll()
         self.orientation_text.text = f"Pitch: {pitch}°  Roll: {roll}°"
 
-        flight_time = self.tello.get_flight_time()
+        flight_time = self.get_flight_time()
         self.flight_time_text.text = f"Flight Time: {flight_time}s"
 
         # Update Speed X, Y, Z
-        speed_x = self.tello.get_speed_x()
-        speed_y = self.tello.get_speed_y()
-        speed_z = self.tello.get_speed_z()
+        speed_x = self.get_speed_x()
+        speed_y = self.get_speed_y()
+        speed_z = self.get_speed_z()
         
         self.speed_x_text.text = f"Speed X: {speed_x} km/h"
         self.speed_y_text.text = f"Speed Y: {speed_y} km/h"
@@ -509,7 +586,7 @@ class UrsinaAdapter(Entity):
             print("\n========== Battery Depleted! ==========\n")
 
             # **Trigger Emergency Landing**
-            self.tello.emergency()
+            self.emergency()
     
     def update_movement(self) -> None:
         self.velocity += self.acceleration
@@ -559,18 +636,17 @@ class UrsinaAdapter(Entity):
 
         self.update_meters()
         
-        def go_xyz_speed(self, x: float, y: float, z:float, speed_ms: float) -> None:
-            # TODO: this logic needs moving to the ursina adapter
-            if self._ursina_adapter and self._ursina_adapter.is_flying:
-                print(f"Tello Simulator: GO command to X:{x}, Y:{y}, Z:{z} at speed {speed_ms}")
-                duration = max(1, speed_ms / 10)
-                target_position = self._ursina_adapter.drone.position + Vec3(x / 10, y / 10, z / 10)
-                self._ursina_adapter.drone.animate_position(target_position, duration=duration, curve=curve.in_out_quad)
-            else:
-                print("Tello Simulator: Cannot execute GO command. Drone not flying.")
+    def go_xyz_speed(self, x: float, y: float, z:float, speed_ms: float) -> None:
+        # TODO: this logic needs moving to the ursina adapter
+        if self._ursina_adapter and self._ursina_adapter.is_flying:
+            print(f"Tello Simulator: GO command to X:{x}, Y:{y}, Z:{z} at speed {speed_ms}")
+            duration = max(1, speed_ms / 10)
+            target_position = self._ursina_adapter.drone.position + Vec3(x / 10, y / 10, z / 10)
+            self._ursina_adapter.drone.animate_position(target_position, duration=duration, curve=curve.in_out_quad)
+        else:
+            print("Tello Simulator: Cannot execute GO command. Drone not flying.")
         
     def move(self, direction: Literal["forward", "backward", "left", "right"], distance: float) -> None:
-        self.tello.move(direction, distance)
         scale_factor = distance/10
         if direction == "forward":
             forward_vector = self.drone.forward * self.accel_force * scale_factor
@@ -608,14 +684,14 @@ class UrsinaAdapter(Entity):
         delta = distance / 20
         if direction == "up":
             self.drone.y += delta 
-            self.tello.altitude += delta
+            self.altitude += delta
         elif direction == "down" and self.drone.y > 3:
             self.drone.y -= delta
-            self.tello.altitude -= delta
+            self.altitude -= delta
 
     # TODO: Is this Radians or Degrees? We should put a suffix in the argument name
     def rotate(self, angle: float) -> None:
-        self.tello.rotate(angle)
+        self._rotate(angle)
         self.drone.rotation_y = lerp(self.drone.rotation_y, self.drone.rotation_y + angle, 0.2)  
 
     def update_pitch_roll(self) -> None:
@@ -635,41 +711,35 @@ class UrsinaAdapter(Entity):
 
     # TODO: Is this Radians or Degrees? We should put a suffix in the argument name
     def curve_xyz_speed(self, x1: float, y1: float, z1: float, x2: float, y2: float, z2: float, speed: float) -> None:
-        if self.ursina_adapter and self.is_flying:
+        print(f"Tello Simulator: CURVE command from ({x1}, {y1}, {z1}) to ({x2}, {x2}, {z2}) at speed {speed}")
+        duration = max(1, speed / 10)
 
+        first_point = self.drone.position + Vec3(x1 / 10, y1 / 10, z1 / 10)
+        second_point = self.drone.position + Vec3(x2 / 10, y2 / 10, z2 / 10)
 
-            print(f"Tello Simulator: CURVE command from ({x1}, {y1}, {z1}) to ({x2}, {x2}, {z2}) at speed {speed}")
-            duration = max(1, speed / 10)
-
-            first_point = self.drone.position + Vec3(x1 / 10, y1 / 10, z1 / 10)
-            second_point = self.drone.position + Vec3(x2 / 10, y2 / 10, z2 / 10)
-
-            # Smooth curve with camera sync ∂∂
+        # Smooth curve with camera sync ∂∂
+        self.camera_holder.rotation_y = self.drone.rotation_y
+        
+        # Smooth curve with camera sync
+        def follow_camera():
+            self.camera_holder.position = self.drone.position
             self.camera_holder.rotation_y = self.drone.rotation_y
-            
-            # Smooth curve with camera sync
-            def follow_camera():
-                self.camera_holder.position = self.drone.position
-                self.camera_holder.rotation_y = self.drone.rotation_y
 
-            # Follow during the first animation ∂
+        # Follow during the first animation ∂
+        self.drone.animate_position(
+            first_point, duration=duration / 2, curve=curve.in_out_quad)
+        for t in range(int(duration * 60 // 2)):  # Assuming 60 FPS
+            invoke(follow_camera, delay=t / 60)
+
+        # Follow during the second animation
+        def second_half():
             self.drone.animate_position(
-                first_point, duration=duration / 2, curve=curve.in_out_quad)
-            for t in range(int(duration * 60 // 2)):  # Assuming 60 FPS
+                second_point, duration=duration / 2, curve=curve.in_out_quad)
+            for t in range(int(duration * 60 // 2)):
                 invoke(follow_camera, delay=t / 60)
 
-            # Follow during the second animation
-            def second_half():
-                self.drone.animate_position(
-                    second_point, duration=duration / 2, curve=curve.in_out_quad)
-                for t in range(int(duration * 60 // 2)):
-                    invoke(follow_camera, delay=t / 60)
-
-            invoke(second_half, delay=duration / 2)
-            
-        
-        else:
-            print("Tello Simulator: Cannot execute CURVE command. Drone not flying.")
+        invoke(second_half, delay=duration / 2)
+    
 
     def takeoff(self) -> None:
         if not self.is_flying:
@@ -686,13 +756,9 @@ class UrsinaAdapter(Entity):
     def land(self) -> None:
         if self.is_flying:
             print("Tello Simulator: Drone landing...")
-
-            if self.ursina_adapter:
-                # Get current altitude
-                current_altitude = self.ursina_adapter.drone.y
-
-                
-                self.ursina_adapter.drone.animate('y', 2.6, duration=current_altitude * 0.5, curve=curve.in_out_quad)
+            # Get current altitude
+            current_altitude = self.drone.y
+            self.drone.animate('y', 2.6, duration=current_altitude * 0.5, curve=curve.in_out_quad)
 
             self.is_flying = False
             print("Landing initiated")
@@ -702,14 +768,12 @@ class UrsinaAdapter(Entity):
     def emergency(self) -> None:
         if self.is_flying:
             print(" Emergency! Stopping all motors and descending immediately!")
+            # Stop movement 
+            self.velocity = Vec3(0, 0, 0)
+            self.acceleration = Vec3(0, 0, 0)
 
-            if self.ursina_adapter:
-                # Stop movement 
-                self.ursina_adapter.velocity = Vec3(0, 0, 0)
-                self.ursina_adapter.acceleration = Vec3(0, 0, 0)
-
-                # descent to altitude = 3
-                self.ursina_adapter.drone.animate('y', 2.6, duration=1.5, curve=curve.linear)
+            # descent to altitude = 3
+            self.drone.animate('y', 2.6, duration=1.5, curve=curve.linear)
 
             self.is_flying = False
             print("Emergency landing initiated")
@@ -749,13 +813,15 @@ class UrsinaAdapter(Entity):
             print(" Invalid speed! Speed must be between 10 and 100 cm/s.")
             return
 
-        if self.ursina_adapter:
-            # Normalize speed
-            self.ursina_adapter.accel_force = (x / 100) * 1.5  
+      
+        self.accel_force = (x / 100) * 1.5  
+        print(f" Speed set to {x} cm/s. Acceleration force: {self.accel_force}")
 
-            print(f" Speed set to {x} cm/s. Acceleration force: {self.ursina_adapter.accel_force}")
-        else:
-            print(" Drone simulator not connected.")
+    def close(self) -> None:
+        print("Tello Simulator: Ending simulation...")
+        self.is_connected = False
+        application.quit() #TODO: forgot where this came from
+      
     
     def run(self) -> None:
         self.app.run()
@@ -763,15 +829,11 @@ class UrsinaAdapter(Entity):
     # TODO: I think better the client has exclusive control over controls.
     # if we need keyboard control we could have a keyboard client that sends commands to the sim server
     def tick(self) -> None:
-        if not self.state.is_connected:
+        if not self.is_connected:
             return 
-        if held_keys['shift']:
-            if not self.tello.is_flying:
-                self.tello.takeoff()
-            else:
-                self.change_altitude("up")
+       
         self.update_takeoff_indicator()
-        if self.tello.stream_active:
+        if self.stream_active:
             width, height = int(window.size[0]), int(window.size[1])
             try:
                 pixel_data = glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE)
@@ -780,16 +842,16 @@ class UrsinaAdapter(Entity):
                     image = image.transpose(Image.FLIP_TOP_BOTTOM)
                     frame = cv2.cvtColor(np.array(image), cv2.COLOR_RGBA2BGR)
                     
-                    self.tello.latest_frame = frame.copy()
+                    self.latest_frame = frame.copy()
                     #cv2.imshow("Tello FPV Stream", frame)
                     if cv2.waitKey(1) & 0xFF == ord('q'):
-                        self.tello.stream_active = False
+                        self.stream_active = False
                         cv2.destroyAllWindows()
                         print("[FPV] FPV preview stopped.")
             except Exception as e:
                 print(f"[FPV] OpenGL read error: {e}")
         
-        if not self.tello.is_flying:
+        if not self.is_flying:
             self.camera_holder.position = self.drone.position + Vec3(0, 3, -7)
             
             return
@@ -797,34 +859,14 @@ class UrsinaAdapter(Entity):
         moving = False
         rolling = False
         
-        if self.tello.stream_active:
-            self.tello.capture_frame()
+        if self.stream_active:
+            self.capture_frame()
         
-        if held_keys['w']:
-            self.move("forward")
-            moving = True
-        if held_keys['s']:
-            self.move("backward")
-            moving = True
-        if held_keys['a']:
-            self.move("left")
-            rolling = True
-        if held_keys['d']:
-            self.move("right")
-            rolling = True
-        if held_keys['j']:
-            self.rotate(-self.rotation_speed)
-        if held_keys['l']:
-            self.rotate(self.rotation_speed)
-        
-        if held_keys['control']:
-            self.change_altitude("down")
         if not moving:
             self.pitch_angle = 0  # Reset pitch when not moving
         
         if not rolling:
             self.roll_angle = 0  # Reset roll when not rolling
         
-
         self.update_movement()
         self.update_pitch_roll()

@@ -1,5 +1,5 @@
-from .command_server import CommandServer
-from .ursina_adapter import UrsinaAdapter
+from command_server import CommandServer
+from ursina_adapter import UrsinaAdapter
 
 
 class TelloDroneSim:
@@ -17,4 +17,4 @@ class TelloDroneSim:
         
     
     def update(self) -> None:
-        self._ursina_adapter.update()
+        self._ursina_adapter.tick()
