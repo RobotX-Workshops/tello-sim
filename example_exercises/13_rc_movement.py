@@ -1,5 +1,6 @@
 from typing import Callable
-from tello_sim_client import TelloSimClient
+from tello_sim.tello_sim_client import TelloSimClient
+
 
 import time
 
@@ -8,7 +9,7 @@ MOVEMENT_MAGNITUDE = 30
 TIME_PER_ACTION_SECS = 3
 
 # Create a Tello instance
-tello = Tello()
+tello = TelloSimClient()
 
 # Connect to Tello
 tello.connect()

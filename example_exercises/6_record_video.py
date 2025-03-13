@@ -2,7 +2,7 @@ import os
 from threading import Thread
 import time
 from typing import cast
-from tello_sim_client import TelloSimClient
+from tello_sim.tello_sim_client import TelloSimClient
 
 import cv2
 

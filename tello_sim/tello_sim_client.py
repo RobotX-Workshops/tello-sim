@@ -214,3 +214,6 @@ class TelloSimClient:
         except ConnectionRefusedError:
             print(f"[Error] Unable to retrieve info from {self.host}:{self.port}")
             return "{}"
+
+    def initiate_throw_takeoff(self):
+        self._send_command('throw_takeoff')

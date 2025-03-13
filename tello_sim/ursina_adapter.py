@@ -825,6 +825,7 @@ class UrsinaAdapter():
 
     def end(self) -> None:
         print("Tello Simulator: Ending simulation session...")
+        self.land()
         self.is_connected = False
     
     

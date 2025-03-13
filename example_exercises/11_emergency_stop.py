@@ -1,9 +1,11 @@
-from djitellopy import Tello
+from tello_sim.tello_sim_client import TelloSimClient
 
 import time
 
+from tello_sim.tello_sim_client import TelloSimClient
+
 # Create a Tello instance
-tello = Tello()
+tello = TelloSimClient()
 
 # Connect to Tello
 tello.connect()

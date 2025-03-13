@@ -1,7 +1,7 @@
 import os
 import cv2
 import numpy as np
-from tello_sim_client import TelloSimClient
+from tello_sim.tello_sim_client import TelloSimClient
 
 tello = TelloSimClient()
 tello.connect()

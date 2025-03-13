@@ -1,4 +1,5 @@
-from tello_sim_client import TelloSimClient
+from tello_sim.tello_sim_client import TelloSimClient
+
 
 import time
 
@@ -6,7 +7,7 @@ ROTATION_DEGREES = 90
 HIGHT_CM = 10 
 
 # Create a Tello instance
-tello = Tello()
+tello = TelloSimClient()
 
 # Connect to Tello
 tello.connect()
