@@ -15,12 +15,9 @@ print("Get some information from the drone")
 battery_capacity = tello.get_battery()
 print("Battery Capacity:", battery_capacity, "%")
 
-# Print Tello's IP address
-address = tello.address
-print("Tello IP Address:", address)
 
-# Print barometer reading
-print("Barometer:", tello.get_barometer(), "cm")
+
+
 
 # Print distance from time-of-flight sensor
 print("Distance (TOF):", tello.get_distance_tof(), "cm")
@@ -41,7 +38,7 @@ print("Acceleration X:", tello.get_acceleration_x(), "cm/s²")
 print("Acceleration Y:", tello.get_acceleration_y(), "cm/s²")
 print("Acceleration Z:", tello.get_acceleration_z(), "cm/s²")
 
-print("Serial number:", tello.query_serial_number())
+
 
 print("Pitch", tello.get_pitch(), "degrees")
 
@@ -51,11 +48,5 @@ print("Yaw", tello.get_yaw(), "degrees")
 
 print("IMU data", tello.query_attitude())
 
-print("Lowest_temperature", tello.get_lowest_temperature(), "(°C)")
-
-
-print("Highest_temperature", tello.get_highest_temperature(), "(°C)")
-
-print("Temperature", tello.get_temperature(), "(°C)")
 
 print("State", tello.get_current_state())
