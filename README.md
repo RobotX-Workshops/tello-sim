@@ -24,7 +24,13 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-4. Run the program by running:
+4. Export the python path by running:
+
+```bash
+export PYTHONPATH=$PWD
+```
+
+5. Run the program by running:
 
 ```bash
 python tello_drone.py
