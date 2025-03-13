@@ -17,8 +17,11 @@ class TelloSimClient:
             self._wait_for_simulation()
 
     def _start_simulation(self):
+        sim_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'tello_drone_sim.py'))
         if platform.system() == "Windows":
-            subprocess.Popen(['start', 'cmd', '/k', 'python3 tello_drone_sim.py'], shell=True)
+            command = f'start cmd /k python "{sim_path}"'
+            print("[DEBUG] Launching simulation command:", command) 
+            subprocess.Popen(command, shell=True)
         elif platform.system() == "Linux":
             subprocess.Popen(['gnome-terminal', '--', 'python3', 'tello_drone_sim.py'])
         elif platform.system() == "Darwin":

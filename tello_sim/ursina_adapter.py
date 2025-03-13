@@ -1,5 +1,7 @@
 import os
 from tkinter import Image
+from OpenGL.GL import glReadPixels, GL_RGBA, GL_UNSIGNED_BYTE
+import numpy as np
 from typing import Literal
 import cv2
 import numpy as np
@@ -34,7 +36,7 @@ class UrsinaAdapter():
     def __init__(self):
         super().__init__()
         
-        self.app = Ursina()
+        #self.app = Ursina()
         window.color = color.rgb(135, 206, 235)  
         window.fullscreen = False
         window.borderless = False
@@ -59,7 +61,7 @@ class UrsinaAdapter():
         self.latest_frame = None
         self.last_screenshot_time = None  
         self.last_altitude = self.altitude  
-
+    
         self.dynamic_island = Entity(
             parent=camera.ui,
             model=Quad(radius=0.09),  # Rounded rectangle
@@ -823,8 +825,8 @@ class UrsinaAdapter():
         application.quit() #TODO: forgot where this came from
       
     
-    def run(self) -> None:
-        self.app.run()
+    # def run(self) -> None:
+    #     self.app.run()
     
     # TODO: I think better the client has exclusive control over controls.
     # if we need keyboard control we could have a keyboard client that sends commands to the sim server

@@ -1,9 +1,10 @@
 import os
 import socket
+from ursina import *
+from cv2.typing import MatLike
 from time import time
 import cv2
 from ursina_adapter import UrsinaAdapter
-
         
 class CommandServer:
     """
@@ -13,6 +14,7 @@ class CommandServer:
     def __init__(self, ursina_adapter: UrsinaAdapter):
         self._ursina_adapter = ursina_adapter
         self.latest_frame = None
+        self.last_altitude = 0
         self._recording_folder = "recordings"
         
         if not os.path.exists(self._recording_folder):
