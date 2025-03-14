@@ -707,14 +707,13 @@ class UrsinaAdapter():
     def send_rc_control(self, left_right_velocity_ms: float, forward_backward_velocity_ms: float, up_down_velocity_ms: float, yaw_velocity_ms: float):
         
         self.velocity = Vec3(
-            forward_backward_velocity_ms / 100,  # forward/backward mapped to X
-            up_down_velocity_ms / 100,           # up/down mapped to Y
-            -left_right_velocity_ms / 100        # left/right mapped to Z (negated to match controls)
+            -left_right_velocity_ms / 100,        # LEFT/RIGHT mapped to X
+            up_down_velocity_ms / 100,            # UP/DOWN mapped to Y
+            forward_backward_velocity_ms / 100   # FORWARD/BACKWARD mapped to Z
         )
 
-        self.drone.rotation_y += yaw_velocity_ms * 0.05  # Smooth rotation update
+        self.drone.rotation_y += -yaw_velocity_ms * 0.05  # Smooth yaw rotation
         print(f"[RC Control] Velocities set -> LR: {left_right_velocity_ms}, FB: {forward_backward_velocity_ms}, UD: {up_down_velocity_ms}, Yaw: {yaw_velocity_ms}")
-
     # TODO: Is this Radians or Degrees? We should put a suffix in the argument name
     def curve_xyz_speed(self, x1: float, y1: float, z1: float, x2: float, y2: float, z2: float, speed: float) -> None:
         print(f"Tello Simulator: CURVE command from ({x1}, {y1}, {z1}) to ({x2}, {x2}, {z2}) at speed {speed}")
