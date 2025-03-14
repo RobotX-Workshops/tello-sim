@@ -38,6 +38,8 @@ pause()
 
 tello.curve_xyz_speed(10, 10, 10, 20, 20, 20, 10)
 
+pause()
+
 print("Landing")
 # Land
 tello.land()
