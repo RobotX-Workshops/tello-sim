@@ -1,5 +1,5 @@
 import os
-from tkinter import Image
+from PIL import Image
 from OpenGL.GL import glReadPixels, GL_RGBA, GL_UNSIGNED_BYTE
 import numpy as np
 from typing import Literal
