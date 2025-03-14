@@ -14,6 +14,7 @@ class CommandServer:
     def __init__(self, ursina_adapter: UrsinaAdapter):
         self._ursina_adapter = ursina_adapter
         self.latest_frame = None
+        self.stream_active = False
         self.last_altitude = 0
         self._recording_folder = "recordings"
         
@@ -24,6 +25,7 @@ class CommandServer:
         """Start capturing screenshots and enable FPV video preview."""
         if not self.stream_active:
             self.stream_active = True
+            self._ursina_adapter.stream_active = True
             self.frame_count = 0
             self.saved_frames = []
             self.last_screenshot_time = time() + 3  # First capture after 3 sec
@@ -38,6 +40,7 @@ class CommandServer:
         """Stop capturing screenshots"""
         if self.stream_active:
             self.stream_active = False
+            self._ursina_adapter.stream_active = False
             cv2.destroyAllWindows()
             print(f"[FPV] Video streaming stopped. Frames captured: {len(self.saved_frames)}")
 
@@ -197,7 +200,13 @@ class CommandServer:
                     conn.send(state.encode())
 
                 elif data == "get_latest_frame":
-                    conn.send(self._ursina_adapter.get_latest_frame())
+                    # Save the frame to disk first
+                    frame_path = os.path.join(self._recording_folder, f"latest_frame.png")
+                    if self._ursina_adapter.latest_frame is not None:
+                        cv2.imwrite(frame_path, self._ursina_adapter.latest_frame)
+                        conn.send(frame_path.encode())  
+                    else:
+                        conn.send(b"N/A")
                 elif data == "capture_frame":
                     self._ursina_adapter.capture_frame()
                 elif data.startswith("set_speed"):
