@@ -4,35 +4,26 @@ import time
 import numpy as np
 from tello_sim.tello_sim_client import TelloSimClient
 
+# Initialize and connect
 tello = TelloSimClient()
 tello.connect()
-
 tello.streamon()
 
 # Takeoff
 tello.takeoff()
-time.sleep(5)  # Wait for stable hover
+time.sleep(5)  # Let drone stabilize after takeoff
 
-# Ensure artifact folder exists
+# Get frame object
+frame_read = tello.get_frame_read()
+
+# Prepare directory to save
 script_dir = os.path.dirname(__file__)
 artifact_folder_path = os.path.join(script_dir, "../../artifacts/images")
 os.makedirs(artifact_folder_path, exist_ok=True)
 
-# Capture frame via simulation
-tello.capture_frame()
+# Save the frame
+save_path = os.path.join(artifact_folder_path, "picture.png")
+cv2.imwrite(save_path, np.array(frame_read.frame))
 
-# Get the latest frame from the simulation
-img = tello.get_frame_read()
-if img is not None:
-    save_path = os.path.join(artifact_folder_path, "picture.png")
-    cv2.imwrite(save_path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
-    print(f"Image saved to {save_path}")
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-else:
-    print("No image captured.")
-
-# Land the drone
+# Land
 tello.land()
-
-print("Mission complete.")
