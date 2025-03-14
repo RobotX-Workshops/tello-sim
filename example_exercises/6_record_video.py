@@ -6,62 +6,76 @@ from tello_sim.tello_sim_client import TelloSimClient
 
 import cv2
 
-# The frame rate for the video
+# Configuration
 FPS = 30
 
+# Initialize Tello connector
 tello = TelloSimClient()
 tello.connect()
-keepRecording = True
+
 tello.streamon()
-
-frame_read = tello.get_frame_read()
-
-script_dir = os.path.dirname(__file__)
-# The folder where the images will be stored
-images_folder_path = os.path.join(script_dir, "../../artifacts/videos")
+time.sleep(2)
+# Define paths to save inside tello_recording
+recording_folder = os.path.join(os.getcwd(), "tello_recording")
+images_folder_path = os.path.join(recording_folder, "frames")
+video_file_path = os.path.join(recording_folder, "video.mp4")
 os.makedirs(images_folder_path, exist_ok=True)
 
-# The path for the output video file
-video_file_path = os.path.join(script_dir, "../../artifacts/videos/video.mp4")
-os.makedirs(os.path.dirname(video_file_path), exist_ok=True)
+# Recording control
+keep_recording = True
 
 
 def capture_images():
     frame_count = 0
-    while keepRecording:
-        frame = cast(cv2.typing.MatLike, frame_read.frame)
-        image_file_path = os.path.join(
-            images_folder_path, f"frame_{frame_count:04d}.jpg"
-        )
-        cv2.imwrite(image_file_path, frame)
-        frame_count += 1
+    while keep_recording:
+        frame = tello.get_frame_read().frame
+        if frame is not None:
+            image_file_path = os.path.join(images_folder_path, f"frame_{frame_count:04d}.jpg")
+            cv2.imwrite(image_file_path, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+            frame_count += 1
+            print(f"[Capture] Saved frame {frame_count}")
+        else:
+            print("[Capture] No frame received.")
         time.sleep(1 / FPS)
 
-    print("Finished capturing images")
+    print("[Capture] Finished capturing frames.")
 
 
-# Run the image capture in a separate thread
-recorder = Thread(target=capture_images)
-recorder.start()
+# Start recording thread
+recorder_thread = Thread(target=capture_images)
+recorder_thread.start()
 
+# Drone mission
 tello.takeoff()
+time.sleep(5)
 tello.move_up(50)
+time.sleep(5)
 tello.rotate_counter_clockwise(360)
+time.sleep(5)
 tello.land()
 
-keepRecording = False
-recorder.join()
+# Stop recording
+keep_recording = False
+recorder_thread.join()
 
-# Create the video from the captured images
-frame = cast(cv2.typing.MatLike, frame_read.frame)
-height, width, _ = frame.shape
-fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore
-video = cv2.VideoWriter(video_file_path, fourcc, FPS, (width, height), True)
+# Create video from frames
+frame_files = sorted(os.listdir(images_folder_path))
+if frame_files:
+    first_frame = cv2.imread(os.path.join(images_folder_path, frame_files[0]))
+    height, width, _ = first_frame.shape
 
-for frame_count in range(len(os.listdir(images_folder_path))):
-    image_file_path = os.path.join(images_folder_path, f"frame_{frame_count:04d}.jpg")
-    frame = cv2.imread(image_file_path)
-    video.write(frame)
+    video_writer = cv2.VideoWriter(
+        video_file_path, cv2.VideoWriter_fourcc(*"mp4v"), FPS, (width, height)
+    )
+
+    for frame_file in frame_files:
+        frame_path = os.path.join(images_folder_path, frame_file)
+        frame = cv2.imread(frame_path)
+        video_writer.write(frame)
+
+    video_writer.release()
+    print(f"[Video] Video saved at {video_file_path}")
+else:
+    print("[Video] No frames captured. Video not created.")
 
 print("Finished creating video")
-video.release()
