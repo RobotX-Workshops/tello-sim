@@ -22,7 +22,7 @@ os.makedirs(artifact_folder_path, exist_ok=True)
 tello.capture_frame()
 
 # Get the latest frame from the simulation
-img = tello.get_frame().frame
+img = tello.get_frame_read()
 if img is not None:
     save_path = os.path.join(artifact_folder_path, "picture.png")
     cv2.imwrite(save_path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))

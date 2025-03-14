@@ -68,7 +68,7 @@ class TelloSimClient:
         except ConnectionRefusedError:
             print(f"[Error] Unable to connect to the simulation at {self.host}:{self.port}")
     
-    def get_frame(self) -> BackgroundFrameRead:
+    def get_frame_read(self) -> BackgroundFrameRead:
         frame_path = self._request_data('get_latest_frame')
         if frame_path != "N/A" and os.path.exists(frame_path):
             image = cv2.imread(frame_path)

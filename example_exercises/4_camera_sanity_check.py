@@ -17,7 +17,7 @@ cv2.resizeWindow("frame", WINDOW_WIDTH, WINDOW_HEIGHT)
 
 try:
     while True:
-        img = tello.get_frame().frame
+        img = tello.get_frame_read().frame
         if img is not None:
             img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
             # Resize the image to fit the window size
