@@ -2,7 +2,7 @@ from tello_sim.tello_sim_client import TelloSimClient
 
 import time
 
-MOVEMENT_DISTANCE_CM = 10
+MOVEMENT_DISTANCE_CM = 70
 
 # Create a Tello instance
 tello = TelloSimClient()
