@@ -16,7 +16,7 @@ class CommandServer:
         self.latest_frame = None
         self.stream_active = False
         self.last_altitude = 0
-        self._recording_folder = "recordings"
+        self._recording_folder = "output/recordings"
         
         if not os.path.exists(self._recording_folder):
             os.makedirs(self._recording_folder)
@@ -201,7 +201,7 @@ class CommandServer:
 
                 elif data == "get_latest_frame":
                     # Save the frame to disk first
-                    frame_path = os.path.join(self._recording_folder, f"latest_frame.png")
+                    frame_path = os.path.join(self._recording_folder, "latest_frame.png")
                     if self._ursina_adapter.latest_frame is not None:
                         cv2.imwrite(frame_path, self._ursina_adapter.latest_frame)
                         conn.send(frame_path.encode())  

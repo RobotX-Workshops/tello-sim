@@ -12,20 +12,10 @@ class TelloDroneSim:
         return self._ursina_adapter
 
     def start(self):
-        self._ursina_adapter.connect()
-        global update
-        def update():
-            self._ursina_adapter.tick()
-
-        
-        # Start socket server in separate thread
         server_thread = threading.Thread(target=self._server.listen)
         server_thread.daemon = True
         server_thread.start()
-
-        # Start Ursina application
         self._ursina_adapter.run()
 
-if __name__ == "__main__":
-    sim = TelloDroneSim()
-    sim.start()
+    def update(self) -> None:
+        self._ursina_adapter.tick()

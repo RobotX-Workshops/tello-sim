@@ -30,11 +30,6 @@ pip install -r requirements.txt
 export PYTHONPATH=$PWD
 ```
 
-5. Run the program by running:
-
-```bash
-python tello_drone.py
-```
 
 ## Running the simulation
 

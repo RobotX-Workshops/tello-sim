@@ -16,7 +16,7 @@ tello.connect()
 tello.streamon()
 time.sleep(2)
 # Define paths to save inside tello_recording
-recording_folder = os.path.join(os.getcwd(), "tello_recording")
+recording_folder = os.path.join(os.getcwd(), "output", "tello_recording")
 images_folder_path = os.path.join(recording_folder, "frames")
 video_file_path = os.path.join(recording_folder, "video.mp4")
 os.makedirs(images_folder_path, exist_ok=True)
@@ -65,7 +65,7 @@ if frame_files:
     height, width, _ = first_frame.shape
 
     video_writer = cv2.VideoWriter(
-        video_file_path, cv2.VideoWriter_fourcc(*"mp4v"), FPS, (width, height)
+        video_file_path, cv2.VideoWriter_fourcc(*"mp4v"), FPS, (width, height) # type: ignore
     )
 
     for frame_file in frame_files:

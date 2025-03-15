@@ -83,3 +83,4 @@ cython_debug/
 # Logs
 *.log
 
+output/
