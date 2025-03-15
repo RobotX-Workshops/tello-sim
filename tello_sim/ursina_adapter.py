@@ -23,6 +23,7 @@ from ursina import (
     Sky,
     raycast,
     lerp,
+    held_keys
 )
 from time import sleep, time
 from cv2.typing import MatLike
@@ -834,7 +835,11 @@ class UrsinaAdapter():
         """
         if not self.is_connected:
             return 
-       
+        if held_keys['shift']:
+            if not self.is_flying:
+                self.takeoff()
+            else:
+                self.change_altitude("up")       
         self.update_takeoff_indicator()
         if self.stream_active:
             width, height = int(window.size[0]), int(window.size[1])
@@ -865,6 +870,25 @@ class UrsinaAdapter():
         if self.stream_active:
             self.capture_frame()
         
+        if held_keys['w']:
+            self.move("forward", 10)  # Move forward with a default distance
+            moving = True
+        if held_keys['s']:
+            self.move("backward", 10)  # Move backward with a default distance
+            moving = True
+        if held_keys['a']:
+            self.move("left", 10)  # Move left with a default distance
+            rolling = True
+        if held_keys['d']:
+            self.move("right", 10)  # Move right with a default distance
+            rolling = True
+        if held_keys['j']:
+            self.rotate(-self.rotation_speed)
+        if held_keys['l']:
+            self.rotate(self.rotation_speed)
+        if held_keys['control']:
+            self.change_altitude("down")
+
         if not moving:
             self.pitch_angle = 0  # Reset pitch when not moving
         
