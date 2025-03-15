@@ -633,15 +633,31 @@ class UrsinaAdapter():
 
         self.update_meters()
         
-    def go_xyz_speed(self, x: float, y: float, z:float, speed_ms: float) -> None:
-        # TODO: this logic needs moving to the ursina adapter
-        if self.is_flying:
-            print(f"Tello Simulator: GO command to X:{x}, Y:{y}, Z:{z} at speed {speed_ms}")
-            duration = max(1, speed_ms / 10)
-            target_position = self.drone.position + Vec3(x / 10, y / 10, z / 10)
-            self.drone.animate_position(target_position, duration=duration, curve=curve.in_out_quad)
-        else:
+    def go_xyz_speed(self, x: float, y: float, z: float, speed_ms: float) -> None:
+        if not self.is_flying:
             print("Tello Simulator: Cannot execute GO command. Drone not flying.")
+            return
+
+        print(f"Tello Simulator: GO command to X:{x}, Y:{y}, Z:{z} at speed {speed_ms} cm/s")
+
+        # Compute target position (scaled from cm to simulator units)
+        target_position = self.drone.position + Vec3(x / 10, y / 10, z / 10)
+
+        # Calculate direction vector for yaw (XZ plane)
+        direction_vector = Vec3(x, 0, z)
+        if direction_vector.length() != 0:
+            direction_vector = direction_vector.normalized()
+            target_yaw = np.degrees(np.arctan2(direction_vector.x, direction_vector.z))
+        else:
+            target_yaw = self.drone.rotation_y  # No yaw change if no direction
+
+        # Calculate movement duration from speed (in cm/s) and distance
+        distance_cm = Vec3(x, y, z).length()
+        duration = max(0.5, distance_cm / speed_ms)
+
+        # Animate rotation and movement simultaneously
+        self.drone.animate_position(target_position, duration=duration, curve=curve.in_out_cubic)
+        self.drone.animate('rotation_y', target_yaw, duration=duration, curve=curve.in_out_cubic)
         
     def move(self, direction: Literal["forward", "backward", "left", "right"], distance: float) -> None:
         scale_factor = distance/10
@@ -707,34 +723,46 @@ class UrsinaAdapter():
         print(f"[RC Control] Velocities set -> LR: {left_right_velocity_ms}, FB: {forward_backward_velocity_ms}, UD: {up_down_velocity_ms}, Yaw: {yaw_velocity_ms}")
     # TODO: Is this Radians or Degrees? We should put a suffix in the argument name
     def curve_xyz_speed(self, x1: float, y1: float, z1: float, x2: float, y2: float, z2: float, speed: float) -> None:
-        print(f"Tello Simulator: CURVE command from ({x1}, {y1}, {z1}) to ({x2}, {x2}, {z2}) at speed {speed}")
-        duration = max(1, speed / 10)
+        print(f"Tello Simulator: CURVE command from ({x1}, {y1}, {z1}) to ({x2}, {y2}, {z2}) at speed {speed}")
 
+        # Convert coordinates (cm to sim units)
         first_point = self.drone.position + Vec3(x1 / 10, y1 / 10, z1 / 10)
         second_point = self.drone.position + Vec3(x2 / 10, y2 / 10, z2 / 10)
 
-        # Smooth curve with camera sync ∂∂
-        self.camera_holder.rotation_y = self.drone.rotation_y
-        
-        # Smooth curve with camera sync
+        # Calculate durations proportional to total distance
+        distance1 = Vec3(x1, y1, z1).length()
+        distance2 = Vec3(x2 - x1, y2 - y1, z2 - z1).length()
+        total_distance = distance1 + distance2
+        duration1 = max(0.5, distance1 / speed)
+        duration2 = max(0.5, distance2 / speed)
+
+        # Calculate yaw (rotation_y) angle for each segment
+        def compute_yaw(dx, dz):
+            if dx == 0 and dz == 0:
+                return self.drone.rotation_y  # no rotation needed
+            return np.degrees(np.arctan2(dx, dz))
+
+        yaw1 = compute_yaw(x1, z1)
+        yaw2 = compute_yaw(x2 - x1, z2 - z1)
+
+        # First segment: Move to first point & rotate
+        self.drone.animate_position(first_point, duration=duration1, curve=curve.in_out_quad)
+        self.drone.animate('rotation_y', yaw1, duration=duration1, curve=curve.in_out_quad)
+
+        # Camera follow during first segment
         def follow_camera():
             self.camera_holder.position = self.drone.position
             self.camera_holder.rotation_y = self.drone.rotation_y
-
-        # Follow during the first animation ∂
-        self.drone.animate_position(
-            first_point, duration=duration / 2, curve=curve.in_out_quad)
-        for t in range(int(duration * 60 // 2)):  # Assuming 60 FPS
+        for t in range(int(duration1 * 60)):  # 60 FPS
             invoke(follow_camera, delay=t / 60)
 
-        # Follow during the second animation
+        # Second segment: Animate after first segment completes
         def second_half():
-            self.drone.animate_position(
-                second_point, duration=duration / 2, curve=curve.in_out_quad)
-            for t in range(int(duration * 60 // 2)):
+            self.drone.animate_position(second_point, duration=duration2, curve=curve.in_out_quad)
+            self.drone.animate('rotation_y', yaw2, duration=duration2, curve=curve.in_out_quad)
+            for t in range(int(duration2 * 60)):
                 invoke(follow_camera, delay=t / 60)
-
-        invoke(second_half, delay=duration / 2)
+        invoke(second_half, delay=duration1)
     
 
     def takeoff(self) -> None:
