@@ -12,7 +12,7 @@ class TelloDroneSim:
         return self._ursina_adapter
 
     def start(self):
-       
+        self._ursina_adapter.connect()
         global update
         def update():
             self._ursina_adapter.tick()
