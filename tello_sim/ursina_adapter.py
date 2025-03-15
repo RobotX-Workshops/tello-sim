@@ -23,7 +23,6 @@ from ursina import (
     Sky,
     raycast,
     lerp,
-    held_keys
 )
 from time import sleep, time
 from cv2.typing import MatLike
@@ -835,11 +834,7 @@ class UrsinaAdapter():
         """
         if not self.is_connected:
             return 
-        if held_keys['shift']:
-            if not self.is_flying:
-                self.takeoff()
-            else:
-                self.change_altitude("up")       
+             
         self.update_takeoff_indicator()
         if self.stream_active:
             width, height = int(window.size[0]), int(window.size[1])
@@ -870,24 +865,7 @@ class UrsinaAdapter():
         if self.stream_active:
             self.capture_frame()
         
-        if held_keys['w']:
-            self.move("forward", 10)  
-            moving = True
-        if held_keys['s']:
-            self.move("backward", 10)  
-            moving = True
-        if held_keys['a']:
-            self.move("left", 10)  
-            rolling = True
-        if held_keys['d']:
-            self.move("right", 10) 
-            rolling = True
-        if held_keys['j']:
-            self.rotate(-self.rotation_speed)
-        if held_keys['l']:
-            self.rotate(self.rotation_speed)
-        if held_keys['control']:
-            self.change_altitude("down")
+        
 
         if not moving:
             self.pitch_angle = 0  # Reset pitch when not moving
@@ -898,28 +876,4 @@ class UrsinaAdapter():
         self.update_movement()
         self.update_pitch_roll()
 
-    def handle_input(self, key):
-        current_time = time()
-        if key in self.last_keys:
-            self.last_keys[key].append(current_time)
-            self.last_keys[key] = [t for t in self.last_keys[key] if current_time - t < 0.8]
-        else:
-            self.last_keys[key] = [current_time]
-
-        if len(self.last_keys[key]) == 3:
-            if key == 'w':
-                self.animate_flip("forward")
-            elif key == 's':
-                self.animate_flip("back")
-            elif key == 'a':
-                self.animate_flip("left")
-            elif key == 'd':
-                self.animate_flip("right")
-
-        if key == 'h': self.help_text.visible = not self.help_text.visible
-        if key == 'c': self.toggle_camera_view()
-        if key == 'g': self.land()
-        if key == 'e': self.emergency()
-        if key == '1': self.set_speed(30)
-        if key == '2': self.set_speed(43.33)
-        if key == '3': self.set_speed(60)
+    
