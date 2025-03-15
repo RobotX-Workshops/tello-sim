@@ -871,16 +871,16 @@ class UrsinaAdapter():
             self.capture_frame()
         
         if held_keys['w']:
-            self.move("forward", 10)  # Move forward with a default distance
+            self.move("forward", 10)  
             moving = True
         if held_keys['s']:
-            self.move("backward", 10)  # Move backward with a default distance
+            self.move("backward", 10)  
             moving = True
         if held_keys['a']:
-            self.move("left", 10)  # Move left with a default distance
+            self.move("left", 10)  
             rolling = True
         if held_keys['d']:
-            self.move("right", 10)  # Move right with a default distance
+            self.move("right", 10) 
             rolling = True
         if held_keys['j']:
             self.rotate(-self.rotation_speed)
