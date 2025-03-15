@@ -17,6 +17,9 @@ class TelloDroneSim:
         def update():
             self._ursina_adapter.tick()
 
+        global input
+        def input(key):
+            sim._ursina_adapter.handle_input(key)
         # Start socket server in separate thread
         server_thread = threading.Thread(target=self._server.listen)
         server_thread.daemon = True
