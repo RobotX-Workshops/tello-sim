@@ -100,14 +100,6 @@ class UrsinaAdapter():
             z=-1
         )
         
-        self.help_text = Text(
-            text="Controls:\nW - Forward\nS - Backward\nA - Left\nD - Right\nShift - Launch/Up\nCtrl - Down\nG - Land\nE - Emergency Land\nJ - Rotate Left\nL - Rotate Right\nC - FPV\n1 - Speed-low\n2 - Speed-medium\n3 - Speed-high\nH - Toggle Help",
-            position=(-0.85, 0.43),  # Top-left position
-            scale=1.2,
-            color=color.white,
-            visible=True
-        )
-        
         self.drone = Entity(
             model='entities/tello.glb',
             scale=0.06,
@@ -115,7 +107,6 @@ class UrsinaAdapter():
             collider='box',
             cast_shadow=True
         )
-
 
         self.car = Entity(
             model='entities/dirty_car.glb',
@@ -209,8 +200,6 @@ class UrsinaAdapter():
             cast_shadow=True
         )
 
-
-        
         for i in range(3):
             Entity(
                 model='entities/cobblestone.glb',
@@ -405,11 +394,13 @@ class UrsinaAdapter():
             z=-0.1
         )
 
+        metrics_x_position = 0.51
+        
         # Altitude meter
         self.altitude_meter = Text(
             text=f"Altitude: {self.altitude}m",
-            position=(0.63, 0.44),
-            scale=0.94,
+            position=(metrics_x_position, 0.44),
+            scale=1.21,
             color=color.white
         )
 
@@ -423,35 +414,35 @@ class UrsinaAdapter():
 
         self.orientation_text = Text(
             text="Pitch: 0° Roll: 0°",
-            position=(0.63, 0.41),  # Below altitude meter
+            position=(metrics_x_position, 0.41),  # Below altitude meter
             scale=0.97,
             color=color.white
         )
 
         self.flight_time_text = Text(
             text="Flight Time: 0s",
-            position=(0.63, 0.38),  # Below Pitch, Roll, Yaw
+            position=(metrics_x_position, 0.38),  # Below Pitch, Roll, Yaw
             scale=0.97,
             color=color.white
         )
 
         self.speed_x_text = Text(
             text="Speed X: 0 km/h",
-            position=(0.63, 0.35),  # Below Flight Time
+            position=(metrics_x_position, 0.35),  # Below Flight Time
             scale=0.94,
             color=color.white
         )
 
         self.speed_y_text = Text(
             text="Speed Y: 0 km/h",
-            position=(0.63, 0.32),  # Below Speed X
+            position=(metrics_x_position, 0.32),  # Below Speed X
             scale=0.94,
             color=color.white
         )
 
         self.speed_z_text = Text(
             text="Speed Z: 0 km/h",
-            position=(0.63, 0.29),  # Below Speed Y
+            position=(metrics_x_position, 0.29),  # Below Speed Y
             scale=0.94,
             color=color.white
         )
@@ -623,7 +614,7 @@ class UrsinaAdapter():
 
         if dt > 0:
             velocity_change = self.velocity - self.last_velocity_accel
-            self.calculated_acceleration = velocity_change / dt
+            self.calculated_acceleration = velocity_change / dt # type: ignore
 
             self.last_velocity_accel = Vec3(self.velocity.x, self.velocity.y, self.velocity.z)
             self.last_time_accel = current_time

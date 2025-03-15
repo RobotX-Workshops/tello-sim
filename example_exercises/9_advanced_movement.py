@@ -32,10 +32,12 @@ tello.takeoff()
 
 pause()
 
+# Should go forward to the right and up at 10 cm/s
 tello.go_xyz_speed(10, 10, 10, 10)
 
 pause()
 
+# Should go forward to the right and up at with rotations 10 cm/s
 tello.curve_xyz_speed(10, 10, 10, 20, 20, 20, 10)
 
 pause()
