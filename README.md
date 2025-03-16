@@ -38,4 +38,3 @@ To run the simulation, run the following command:
 ```bash
 python tello_sim/run_sim.py
 ```
-
