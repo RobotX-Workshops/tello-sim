@@ -16,6 +16,8 @@ time.sleep(5)  # Let drone stabilize after takeoff
 # Get frame object
 frame_read = tello.get_frame_read()
 
+tello.streamoff()
+
 # Prepare directory to save
 script_dir = os.path.dirname(__file__)
 artifact_folder_path = os.path.join(script_dir, "../../artifacts/images")

@@ -79,3 +79,4 @@ else:
     print("[Video] No frames captured. Video not created.")
 
 print("Finished creating video")
+tello.streamoff()
