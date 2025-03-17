@@ -32,7 +32,7 @@ tello.takeoff()
 
 pause()
 
-# Should go forward to the right and up at 10 cm/s
+# Should go forward  and up at 10 cm/s
 tello.go_xyz_speed(10, 10, 10, 10)
 
 pause()
