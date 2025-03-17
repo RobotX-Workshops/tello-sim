@@ -646,26 +646,6 @@ class UrsinaAdapter():
         command_func, args, kwargs = self.command_queue.pop(0)
         command_func(*args, **kwargs)
         
-    def go_xyz_speed(self, x: float, y: float, z: float, speed_ms: float) -> None:
-        def command():
-            print(f"Tello Simulator: GO command to X:{x}, Y:{y}, Z:{z} at speed {speed_ms} cm/s")
-
-            target_position = self.drone.position + Vec3(x / 10, y / 10, z / 10)
-            direction_vector = Vec3(x, 0, z)
-            if direction_vector.length() != 0:
-                direction_vector = direction_vector.normalized()
-                target_yaw = np.degrees(np.arctan2(direction_vector.x, direction_vector.z))
-            else:
-                target_yaw = self.drone.rotation_y
-
-            distance_cm = Vec3(x, y, z).length()
-            duration = max(0.5, distance_cm / speed_ms)
-
-            self.drone.animate_position(target_position, duration=duration, curve=curve.in_out_cubic)
-            self.drone.animate('rotation_y', target_yaw, duration=duration, curve=curve.in_out_cubic)
-            invoke(self._motion_complete_callback, delay=duration)
-
-        self.enqueue_command(command)
     def move(self, direction: Literal["forward", "backward", "left", "right"], distance: float) -> None:
         scale_factor = distance/10
         if direction == "forward":
@@ -728,16 +708,61 @@ class UrsinaAdapter():
 
         self.drone.rotation_y += -yaw_velocity_ms * 0.05  # Smooth yaw rotation
         print(f"[RC Control] Velocities set -> LR: {left_right_velocity_ms}, FB: {forward_backward_velocity_ms}, UD: {up_down_velocity_ms}, Yaw: {yaw_velocity_ms}")
+
+    @staticmethod
+    def map_coords(x: float, y: float, z: float) -> Vec3:
+        """
+        Maps the differences between normal robotics coordinates system to the Ursina Coordinate system
+        """
+        # Simulator Z-axis is positive forwards, while Tello Z-axis is positive upwards
+        sim_z = x
+        # Simulator X-axis is positive right, while Tello Y-axis is positive left
+        sim_x = -y
+        # Simulator Y-axis is positive upwards, while Tello Z-axis is positive forwards
+        sim_y = z
+        return Vec3(
+            sim_x,
+            sim_y,
+            sim_z
+        )
+        
+    def go_xyz_speed(self, x: float, y: float, z: float, speed_ms: float) -> None:
+        """
+        Moves in a linear path to the specified coordinates at the given speed.
+        """
+        def command():
+            print(f"Tello Simulator: GO command to X:{x}, Y:{y}, Z:{z} at speed {speed_ms} cm/s")
+
+            target_position = self.drone.position + self.map_coords(x / 10, y / 10, z / 10)
+            direction_vector = self.map_coords(x, 0, z)
+            if direction_vector.length() != 0:
+                direction_vector = direction_vector.normalized()
+                target_yaw = np.degrees(np.arctan2(direction_vector.x, direction_vector.z))
+            else:
+                target_yaw = self.drone.rotation_y
+
+            distance_cm = self.map_coords(x, y, z).length()
+            duration = max(0.5, distance_cm / speed_ms)
+
+            self.drone.animate_position(target_position, duration=duration, curve=curve.in_out_cubic)
+            self.drone.animate('rotation_y', target_yaw, duration=duration, curve=curve.in_out_cubic)
+            invoke(self._motion_complete_callback, delay=duration)
+
+        self.enqueue_command(command)
+
     # TODO: Is this Radians or Degrees? We should put a suffix in the argument name
     def curve_xyz_speed(self, x1: float, y1: float, z1: float, x2: float, y2: float, z2: float, speed: float) -> None:
+        """
+        Moves in a curve path to the specified coordinates at the given speed.
+        """
         def command():
             print(f"Tello Simulator: CURVE command from ({x1}, {y1}, {z1}) to ({x2}, {y2}, {z2}) at speed {speed}")
 
-            first_point = self.drone.position + Vec3(x1 / 10, y1 / 10, z1 / 10)
-            second_point = self.drone.position + Vec3(x2 / 10, y2 / 10, z2 / 10)
+            first_point = self.drone.position + self.map_coords(x1 / 10, y1 / 10, z1 / 10)
+            second_point = self.drone.position + self.map_coords(x2 / 10, y2 / 10, z2 / 10)
 
-            distance1 = Vec3(x1, y1, z1).length()
-            distance2 = Vec3(x2 - x1, y2 - y1, z2 - z1).length()
+            distance1 = self.map_coords(x1, y1, z1).length()
+            distance2 = self.map_coords(x2 - x1, y2 - y1, z2 - z1).length()
             duration1 = max(0.5, distance1 / speed)
             duration2 = max(0.5, distance2 / speed)
 

@@ -32,13 +32,23 @@ tello.takeoff()
 
 pause()
 
+# Should go forward 1m at 10 cm/s
+tello.go_xyz_speed(100, 0, 0, 10)
+
+# Should go backwards 1m at 10 cm/s
+tello.go_xyz_speed(-100, 0, 0, 10)
+
 # Should go forward  and up at 10 cm/s
-tello.go_xyz_speed(10, 10, 10, 10)
+# tello.go_xyz_speed(10, 10, 10, 10)
+# Should go backward left and up at 10 cm/s
+# tello.go_xyz_speed(-80, 10, 10, 20)
+
 
 pause()
 
 # Should go forward to the right and up at with rotations 10 cm/s
-tello.curve_xyz_speed(10, 10, 10, 20, 20, 120, 10)
+# tello.curve_xyz_speed(10, 10, 10, 20, 20, 120, 10)
+# tello.curve_xyz_speed(40, 10, 140, -200, 80, 40, 20)
 
 pause()
 
