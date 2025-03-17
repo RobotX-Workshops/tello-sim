@@ -42,6 +42,7 @@ class UrsinaAdapter():
         window.borderless = False
         window.fps_counter.enabled = False  
         window.render_mode = 'default'  
+        self.command_queue = []
         self.is_moving = False
         Sky(texture='sky_sunset')
         
@@ -633,38 +634,38 @@ class UrsinaAdapter():
 
         self.update_meters()
         
-    def go_xyz_speed(self, x: float, y: float, z: float, speed_ms: float) -> None:
-        if not self.is_flying:
-            print("Tello Simulator: Cannot execute GO command. Drone not flying.")
+    def enqueue_command(self, command_func, *args, **kwargs):
+        self.command_queue.append((command_func, args, kwargs))
+        if not self.is_moving:
+            self._execute_next_command()
+    
+    def _execute_next_command(self):
+        if not self.command_queue:
             return
-
-        print(f"Tello Simulator: GO command to X:{x}, Y:{y}, Z:{z} at speed {speed_ms} cm/s")
-
-        # Compute target position (scaled from cm to simulator units)
-        target_position = self.drone.position + Vec3(x / 10, y / 10, z / 10)
-        print(f"Target position: {target_position}")
-
-        # Calculate direction vector for yaw (XZ plane)
-        direction_vector = Vec3(x, 0, z)
-        if direction_vector.length() != 0:
-            print(f"Direction vector: {direction_vector}")
-            direction_vector = direction_vector.normalized()
-            target_yaw = np.degrees(np.arctan2(direction_vector.x, direction_vector.z))
-        else:
-            print("No direction vector, keeping current yaw")
-            target_yaw = self.drone.rotation_y  # No yaw change if no direction
-
-        # Calculate movement duration from speed (in cm/s) and distance
-        distance_cm = Vec3(x, y, z).length()
-        print(f"Distance: {distance_cm} cm")
-        duration = max(0.5, distance_cm / speed_ms)
-        print(f"Duration: {duration} s")
         self.is_moving = True
-        # Animate rotation and movement simultaneously
-        self.drone.animate_position(target_position, duration=duration, curve=curve.in_out_cubic)
+        command_func, args, kwargs = self.command_queue.pop(0)
+        command_func(*args, **kwargs)
         
-        self.drone.animate('rotation_y', target_yaw, duration=duration, curve=curve.in_out_cubic)
-        invoke(self._motion_complete_callback, delay=duration)
+    def go_xyz_speed(self, x: float, y: float, z: float, speed_ms: float) -> None:
+        def command():
+            print(f"Tello Simulator: GO command to X:{x}, Y:{y}, Z:{z} at speed {speed_ms} cm/s")
+
+            target_position = self.drone.position + Vec3(x / 10, y / 10, z / 10)
+            direction_vector = Vec3(x, 0, z)
+            if direction_vector.length() != 0:
+                direction_vector = direction_vector.normalized()
+                target_yaw = np.degrees(np.arctan2(direction_vector.x, direction_vector.z))
+            else:
+                target_yaw = self.drone.rotation_y
+
+            distance_cm = Vec3(x, y, z).length()
+            duration = max(0.5, distance_cm / speed_ms)
+
+            self.drone.animate_position(target_position, duration=duration, curve=curve.in_out_cubic)
+            self.drone.animate('rotation_y', target_yaw, duration=duration, curve=curve.in_out_cubic)
+            invoke(self._motion_complete_callback, delay=duration)
+
+        self.enqueue_command(command)
     def move(self, direction: Literal["forward", "backward", "left", "right"], distance: float) -> None:
         scale_factor = distance/10
         if direction == "forward":
@@ -729,64 +730,49 @@ class UrsinaAdapter():
         print(f"[RC Control] Velocities set -> LR: {left_right_velocity_ms}, FB: {forward_backward_velocity_ms}, UD: {up_down_velocity_ms}, Yaw: {yaw_velocity_ms}")
     # TODO: Is this Radians or Degrees? We should put a suffix in the argument name
     def curve_xyz_speed(self, x1: float, y1: float, z1: float, x2: float, y2: float, z2: float, speed: float) -> None:
-        print(f"Tello Simulator: CURVE command from ({x1}, {y1}, {z1}) to ({x2}, {y2}, {z2}) at speed {speed}")
+        def command():
+            print(f"Tello Simulator: CURVE command from ({x1}, {y1}, {z1}) to ({x2}, {y2}, {z2}) at speed {speed}")
 
-        # Convert coordinates (cm to sim units)
-        first_point = self.drone.position + Vec3(x1 / 10, y1 / 10, z1 / 10)
-        second_point = self.drone.position + Vec3(x2 / 10, y2 / 10, z2 / 10)
+            first_point = self.drone.position + Vec3(x1 / 10, y1 / 10, z1 / 10)
+            second_point = self.drone.position + Vec3(x2 / 10, y2 / 10, z2 / 10)
 
-        # Calculate durations proportional to total distance
-        distance1 = Vec3(x1, y1, z1).length()
-        distance2 = Vec3(x2 - x1, y2 - y1, z2 - z1).length()
-        total_distance = distance1 + distance2
-        duration1 = max(0.5, distance1 / speed)
-        duration2 = max(0.5, distance2 / speed)
+            distance1 = Vec3(x1, y1, z1).length()
+            distance2 = Vec3(x2 - x1, y2 - y1, z2 - z1).length()
+            duration1 = max(0.5, distance1 / speed)
+            duration2 = max(0.5, distance2 / speed)
 
-        # Calculate yaw (rotation_y) angle for each segment
-        def compute_yaw(dx, dz):
-            if dx == 0 and dz == 0:
-                return self.drone.rotation_y  # no rotation needed
-            return np.degrees(np.arctan2(dx, dz))
+            def compute_yaw(dx, dz):
+                if dx == 0 and dz == 0:
+                    return self.drone.rotation_y
+                return np.degrees(np.arctan2(dx, dz))
 
-        yaw1 = compute_yaw(x1, z1)
-        yaw2 = compute_yaw(x2 - x1, z2 - z1)
+            yaw1 = compute_yaw(x1, z1)
+            yaw2 = compute_yaw(x2 - x1, z2 - z1)
 
-        # First segment: Move to first point & rotate
-        self.drone.animate_position(first_point, duration=duration1, curve=curve.in_out_quad)
-        self.drone.animate('rotation_y', yaw1, duration=duration1, curve=curve.in_out_quad)
+            self.drone.animate_position(first_point, duration=duration1, curve=curve.in_out_quad)
+            self.drone.animate('rotation_y', yaw1, duration=duration1, curve=curve.in_out_quad)
 
-        # Camera follow during first segment
-        def follow_camera():
-            self.camera_holder.position = self.drone.position
-            self.camera_holder.rotation_y = self.drone.rotation_y
-        for t in range(int(duration1 * 60)):  # 60 FPS
-            invoke(follow_camera, delay=t / 60)
+            def follow_camera():
+                self.camera_holder.position = self.drone.position
+                self.camera_holder.rotation_y = self.drone.rotation_y
 
-        # Second segment: Animate after first segment completes
-        def second_half():
-            self.drone.animate_position(second_point, duration=duration2, curve=curve.in_out_quad)
-            self.drone.animate('rotation_y', yaw2, duration=duration2, curve=curve.in_out_quad)
-            for t in range(int(duration2 * 60)):
+            for t in range(int(duration1 * 60)):
                 invoke(follow_camera, delay=t / 60)
-        invoke(second_half, delay=duration1)
-        self.is_moving = True
-        invoke(self._motion_complete_callback, delay=duration1 + duration2)
 
-    def takeoff(self) -> None:
-        if not self.is_flying:
-            print("Tello Simulator: Taking off...")
-            
-            self.is_flying = True
-            target_altitude = self.drone.y + 2  # Target altitude
-            self.drone.animate('y', target_altitude, duration=1, curve=curve.in_out_quad)
+            def second_half():
+                self.drone.animate_position(second_point, duration=duration2, curve=curve.in_out_quad)
+                self.drone.animate('rotation_y', yaw2, duration=duration2, curve=curve.in_out_quad)
+                for t in range(int(duration2 * 60)):
+                    invoke(follow_camera, delay=t / 60)
+                invoke(self._motion_complete_callback, delay=duration2)
 
-            print("Tello Simulator: Takeoff successful! You can now control the drone.")
-        else:
-            print("Tello Simulator: Already in air.")
-            
+            invoke(second_half, delay=duration1)
+
+        self.enqueue_command(command)
+                
     def _motion_complete_callback(self):
         self.is_moving = False
-    
+        self._execute_next_command()
     def land(self) -> None:
         if self.is_moving:
             print("Tello Simulator: Movement in progress. Deferring landing...")
