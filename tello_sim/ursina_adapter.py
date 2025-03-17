@@ -42,7 +42,7 @@ class UrsinaAdapter():
         window.borderless = False
         window.fps_counter.enabled = False  
         window.render_mode = 'default'  
-
+        self.is_moving = False
         Sky(texture='sky_sunset')
         
         self.is_flying = False
@@ -659,12 +659,12 @@ class UrsinaAdapter():
         print(f"Distance: {distance_cm} cm")
         duration = max(0.5, distance_cm / speed_ms)
         print(f"Duration: {duration} s")
-        
+        self.is_moving = True
         # Animate rotation and movement simultaneously
         self.drone.animate_position(target_position, duration=duration, curve=curve.in_out_cubic)
         
         self.drone.animate('rotation_y', target_yaw, duration=duration, curve=curve.in_out_cubic)
-        
+        invoke(self._motion_complete_callback, delay=duration)
     def move(self, direction: Literal["forward", "backward", "left", "right"], distance: float) -> None:
         scale_factor = distance/10
         if direction == "forward":
@@ -769,7 +769,8 @@ class UrsinaAdapter():
             for t in range(int(duration2 * 60)):
                 invoke(follow_camera, delay=t / 60)
         invoke(second_half, delay=duration1)
-    
+        self.is_moving = True
+        invoke(self._motion_complete_callback, delay=duration1 + duration2)
 
     def takeoff(self) -> None:
         if not self.is_flying:
@@ -783,17 +784,22 @@ class UrsinaAdapter():
         else:
             print("Tello Simulator: Already in air.")
             
+    def _motion_complete_callback(self):
+        self.is_moving = False
+    
     def land(self) -> None:
+        if self.is_moving:
+            print("Tello Simulator: Movement in progress. Deferring landing...")
+            invoke(self.land, delay=1.0)
+            return
         if self.is_flying:
             print("Tello Simulator: Drone landing...")
-            # Get current altitude
             current_altitude = self.drone.y
             self.drone.animate('y', 2.6, duration=current_altitude * 0.5, curve=curve.in_out_quad)
-
             self.is_flying = False
             print("Landing initiated")
-        
-        print("Already on ground")
+        else:
+            print("Already on ground")
         
     def emergency(self) -> None:
         if self.is_flying:
