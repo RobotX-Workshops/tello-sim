@@ -642,21 +642,27 @@ class UrsinaAdapter():
 
         # Compute target position (scaled from cm to simulator units)
         target_position = self.drone.position + Vec3(x / 10, y / 10, z / 10)
+        print(f"Target position: {target_position}")
 
         # Calculate direction vector for yaw (XZ plane)
         direction_vector = Vec3(x, 0, z)
         if direction_vector.length() != 0:
+            print(f"Direction vector: {direction_vector}")
             direction_vector = direction_vector.normalized()
             target_yaw = np.degrees(np.arctan2(direction_vector.x, direction_vector.z))
         else:
+            print("No direction vector, keeping current yaw")
             target_yaw = self.drone.rotation_y  # No yaw change if no direction
 
         # Calculate movement duration from speed (in cm/s) and distance
         distance_cm = Vec3(x, y, z).length()
+        print(f"Distance: {distance_cm} cm")
         duration = max(0.5, distance_cm / speed_ms)
-
+        print(f"Duration: {duration} s")
+        
         # Animate rotation and movement simultaneously
         self.drone.animate_position(target_position, duration=duration, curve=curve.in_out_cubic)
+        
         self.drone.animate('rotation_y', target_yaw, duration=duration, curve=curve.in_out_cubic)
         
     def move(self, direction: Literal["forward", "backward", "left", "right"], distance: float) -> None:
