@@ -33,11 +33,11 @@ tello.takeoff()
 pause()
 
 tello.curve_xyz_speed(100, 0, 0, 200, 200, 0, 20)
-tello.wait_until_motion_complete()
-tello.go_xyz_speed(100, 0, 0, 10)
-tello.wait_until_motion_complete() # Use this instead of pause for longer duration curve_xyz_speed/go_xyz_speed,to prevent break in animation.
+tello.wait_until_motion_complete()# Use this instead of pause for longer duration curve_xyz_speed/go_xyz_speed,to prevent break in animation.
+#tello.go_xyz_speed(100, 0, 0, 10)
+#tello.wait_until_motion_complete() 
 # Should go backwards 1m at 10 cm/s
-tello.go_xyz_speed(-100, 0, 0, 10)
+#tello.go_xyz_speed(-100, 0, 0, 10)
 
 # Should go forward  and up at 10 cm/s
 # tello.go_xyz_speed(10, 10, 10, 10)
@@ -45,7 +45,7 @@ tello.go_xyz_speed(-100, 0, 0, 10)
 # tello.go_xyz_speed(-80, 10, 10, 20)
 
 
-pause()
+#pause()
 
 # Should go forward to the right and up at with rotations 10 cm/s
 # tello.curve_xyz_speed(10, 10, 10, 20, 20, 120, 10)
