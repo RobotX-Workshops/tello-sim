@@ -63,7 +63,10 @@ class UrsinaAdapter():
         self.latest_frame = None
         self.last_screenshot_time = None  
         self.last_altitude = self.altitude  
-    
+        self.bezier_path = []
+        self.bezier_duration = 0
+        self.bezier_start_time = None
+        self.bezier_mode = False
         self.dynamic_island = Entity(
             parent=camera.ui,
             model=Quad(radius=0.09),  # Rounded rectangle
@@ -751,48 +754,26 @@ class UrsinaAdapter():
         self.enqueue_command(command)
 
     # TODO: Is this Radians or Degrees? We should put a suffix in the argument name
+    
+    def start_bezier_motion(self, x1, y1, z1, x2, y2, z2, speed):
+        
+        # Define start, control and end points
+        start = self.drone.position
+        control = self.drone.position + self.map_coords(x1 / 10, y1 / 10, z1 / 10)
+        end = self.drone.position + self.map_coords(x2 / 10, y2 / 10, z2 / 10)
+
+        self.bezier_path = [start, control, end]
+
+        chord = (end - start).length()
+        cont_net = (control - start).length() + (end - control).length()
+        approx_length = (chord + cont_net) / 2
+        self.bezier_duration = max(1.0, approx_length / speed)
+        self.bezier_start_time = time()
+        self.bezier_mode = True
+    
     def curve_xyz_speed(self, x1: float, y1: float, z1: float, x2: float, y2: float, z2: float, speed: float) -> None:
-        """
-        Moves in a curve path to the specified coordinates at the given speed.
-        """
         def command():
-            print(f"Tello Simulator: CURVE command from ({x1}, {y1}, {z1}) to ({x2}, {y2}, {z2}) at speed {speed}")
-
-            first_point = self.drone.position + self.map_coords(x1 / 10, y1 / 10, z1 / 10)
-            second_point = self.drone.position + self.map_coords(x2 / 10, y2 / 10, z2 / 10)
-
-            distance1 = self.map_coords(x1, y1, z1).length()
-            distance2 = self.map_coords(x2 - x1, y2 - y1, z2 - z1).length()
-            duration1 = max(0.5, distance1 / speed)
-            duration2 = max(0.5, distance2 / speed)
-
-            def compute_yaw(dx, dz):
-                if dx == 0 and dz == 0:
-                    return self.drone.rotation_y
-                return np.degrees(np.arctan2(dx, dz))
-
-            yaw1 = compute_yaw(x1, z1)
-            yaw2 = compute_yaw(x2 - x1, z2 - z1)
-
-            self.drone.animate_position(first_point, duration=duration1, curve=curve.in_out_quad)
-            self.drone.animate('rotation_y', yaw1, duration=duration1, curve=curve.in_out_quad)
-
-            def follow_camera():
-                self.camera_holder.position = self.drone.position
-                self.camera_holder.rotation_y = self.drone.rotation_y
-
-            for t in range(int(duration1 * 60)):
-                invoke(follow_camera, delay=t / 60)
-
-            def second_half():
-                self.drone.animate_position(second_point, duration=duration2, curve=curve.in_out_quad)
-                self.drone.animate('rotation_y', yaw2, duration=duration2, curve=curve.in_out_quad)
-                for t in range(int(duration2 * 60)):
-                    invoke(follow_camera, delay=t / 60)
-                invoke(self._motion_complete_callback, delay=duration2)
-
-            invoke(second_half, delay=duration1)
-
+            self.start_bezier_motion(x1, y1, z1, x2, y2, z2, speed)
         self.enqueue_command(command)
                 
     def takeoff(self) -> None:
@@ -915,6 +896,32 @@ class UrsinaAdapter():
         
         moving = False
         rolling = False
+        
+        if self.bezier_mode:
+            t_now = time()
+            elapsed = t_now - self.bezier_start_time
+            t = min(1.0, elapsed / self.bezier_duration)
+
+            # Bézier point
+            start, control, end = self.bezier_path
+            pos = (1 - t)**2 * start + 2 * (1 - t)*t * control + t**2 * end
+            self.drone.position = pos
+
+            # Update yaw
+            if t < 0.99:
+                pos2 = (1 - t - 0.01)**2 * start + 2 * (1 - t - 0.01)*(t + 0.01) * control + (t + 0.01)**2 * end
+                dir_vec = pos2 - pos
+                if dir_vec.length() > 0:
+                    yaw = np.degrees(np.arctan2(dir_vec.x, dir_vec.z))
+                    self.drone.rotation_y = lerp(self.drone.rotation_y, yaw, 0.1)
+
+            # Update camera
+            self.camera_holder.position = pos
+            self.camera_holder.rotation_y = self.drone.rotation_y
+
+            if t >= 1.0:
+                self.bezier_mode = False
+                self._motion_complete_callback()
         
         if self.stream_active:
             self.capture_frame()

@@ -34,7 +34,7 @@ pause()
 
 # Should go forward 1m at 10 cm/s
 tello.go_xyz_speed(100, 0, 0, 10)
-
+tello.wait_until_motion_complete() # Use this instead of pause for longer duration curve_xyz_speed/go_xyz_speed,to prevent break in animation.
 # Should go backwards 1m at 10 cm/s
 tello.go_xyz_speed(-100, 0, 0, 10)
 
@@ -48,9 +48,9 @@ pause()
 
 # Should go forward to the right and up at with rotations 10 cm/s
 # tello.curve_xyz_speed(10, 10, 10, 20, 20, 120, 10)
-# tello.curve_xyz_speed(40, 10, 140, -200, 80, 40, 20)
+#tello.curve_xyz_speed(40, 10, 140, -200, 80, 40, 20)
 
-pause()
+
 
 print("Landing")
 # Land

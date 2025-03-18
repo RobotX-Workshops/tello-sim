@@ -86,6 +86,10 @@ class TelloSimClient:
             print(f"[Error] Unable to retrieve '{command}' from {self.host}:{self.port}")
             return "N/A"
 
+    def wait_until_motion_complete(self):
+        while self._request_data("get_is_moving") == "True":
+            time.sleep(0.1)
+    
     def get_battery(self):
         return self._request_data('get_battery')
 

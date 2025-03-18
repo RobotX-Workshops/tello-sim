@@ -147,6 +147,8 @@ class CommandServer:
                     except ValueError:
                         conn.send(b"Invalid RC control parameters")
 
+                elif data == "get_is_moving":
+                    conn.send(str(self._ursina_adapter.is_moving).encode())
                 
                 elif data.startswith("curve"):
                     try:
