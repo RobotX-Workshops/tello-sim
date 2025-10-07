@@ -1,9 +1,0 @@
-{
-	"name": "Python GUI Devcontainer",
-	"build": {
-	  "dockerfile": "Dockerfile"
-	},
-	"forwardPorts": [5901],
-	"runArgs": ["--env", "DISPLAY=host.docker.internal:0"],
-	"mounts": ["source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind"]
-  }

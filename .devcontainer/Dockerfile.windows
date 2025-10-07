@@ -1,0 +1,29 @@
+FROM python:3.9
+
+# Install system dependencies for GUI and VNC
+RUN apt-get update && apt-get install -y \
+    fluxbox \
+    x11vnc \
+    xvfb \
+    python3-tk \
+    python3-opengl \
+    mesa-utils \
+    supervisor \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create VNC directory and set up supervisor
+RUN mkdir -p /var/log/supervisor
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Set up VNC password (optional)
+RUN mkdir /root/.vnc
+RUN x11vnc -storepasswd vncpass /root/.vnc/passwd
+
+# Expose VNC port
+EXPOSE 5901
+
+# Set display
+ENV DISPLAY=:1
+
+# Start supervisor to manage processes
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

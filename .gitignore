@@ -83,4 +83,7 @@ cython_debug/
 # Logs
 *.log
 
+# Dev container generated files
+.devcontainer/devcontainer.json
+
 output/
