@@ -1,5 +1,6 @@
 import os
 import socket
+import errno
 from ursina import * # type: ignore
 from time import time
 import cv2
@@ -91,7 +92,7 @@ class CommandServer:
             self.server_socket.listen(5)
             print("[Command Listener] Listening on port 9999...")
         except OSError as e:
-            if e.errno == 48:  # Address already in use
+            if e.errno == errno.EADDRINUSE:  # Address already in use
                 print("\n" + "="*70)
                 print("ERROR: Port 9999 is already in use!")
                 print("="*70)
