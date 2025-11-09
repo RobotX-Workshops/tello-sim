@@ -1,7 +1,6 @@
 import os
 import socket
 from ursina import *
-from cv2.typing import MatLike
 from time import time
 import cv2
 from ursina_adapter import UrsinaAdapter
@@ -17,9 +16,33 @@ class CommandServer:
         self.stream_active = False
         self.last_altitude = 0
         self._recording_folder = "output/recordings"
+        self.server_socket = None
         
         if not os.path.exists(self._recording_folder):
             os.makedirs(self._recording_folder)
+
+    def check_port_available(self, port: int = 9999) -> bool:
+        """
+        Check if the specified port is available.
+        Returns True if available, False if in use.
+        """
+        try:
+            test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            test_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            test_socket.bind(('localhost', port))
+            test_socket.close()
+            return True
+        except OSError:
+            return False
+
+    def cleanup(self):
+        """Clean up resources and close the server socket."""
+        if self.server_socket:
+            try:
+                self.server_socket.close()
+                print("[Command Listener] Server socket closed.")
+            except Exception as e:
+                print(f"[Command Listener] Error closing socket: {e}")
 
     def streamon(self):
         """Start capturing screenshots and enable FPV video preview."""
@@ -60,16 +83,35 @@ class CommandServer:
         """
         Listens for commands to send to the Simulator
         """
-        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server.bind(('localhost', 9999))  # Port number for communication
-        server.listen(5)
-        print("[Command Listener] Listening on port 9999...")
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        
+        try:
+            self.server_socket.bind(('localhost', 9999))  # Port number for communication
+            self.server_socket.listen(5)
+            print("[Command Listener] Listening on port 9999...")
+        except OSError as e:
+            if e.errno == 48:  # Address already in use
+                print("\n" + "="*70)
+                print("ERROR: Port 9999 is already in use!")
+                print("="*70)
+                print("\nAnother instance of the simulator may be running.")
+                print("\nTo fix this, run one of these commands in your terminal:")
+                print("  macOS/Linux: lsof -ti:9999 | xargs kill -9")
+                print("  Windows:     netstat -ano | findstr :9999")
+                print("               taskkill /PID <PID> /F")
+                print("\nOr simply restart your computer.")
+                print("="*70 + "\n")
+                raise
+            else:
+                raise
 
-        while True:
-            conn, _ = server.accept()
-            data = conn.recv(1024).decode()
-            if data:
-                print(f"[Command Listener] Received command: {data}")
+        try:
+            while True:
+                conn, _ = self.server_socket.accept()
+                data = conn.recv(1024).decode()
+                if data:
+                    print(f"[Command Listener] Received command: {data}")
                 
                 if data == "connect":
                     self._ursina_adapter.connect()
@@ -221,4 +263,11 @@ class CommandServer:
                 elif data == "end":
                     self.end()
 
-            conn.close()
+                conn.close()
+        except KeyboardInterrupt:
+            print("\n[Command Listener] Shutting down...")
+            self.cleanup()
+        except Exception as e:
+            print(f"[Command Listener] Error: {e}")
+            self.cleanup()
+            raise
