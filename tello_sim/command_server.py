@@ -244,13 +244,25 @@ class CommandServer:
                     conn.send(state.encode())
 
                 elif data == "get_latest_frame":
-                    # Save the frame to disk first
-                    frame_path = os.path.join(self._recording_folder, "latest_frame.png")
+                    # Send frame data directly over TCP instead of using filesystem
                     if self._ursina_adapter.latest_frame is not None:
-                        cv2.imwrite(frame_path, self._ursina_adapter.latest_frame)
-                        conn.send(frame_path.encode())  
+                        # Encode frame as PNG in memory
+                        success, buffer = cv2.imencode('.png', self._ursina_adapter.latest_frame)
+                        if success:
+                            # Send frame size first (4 bytes)
+                            frame_data = buffer.tobytes()
+                            frame_size = len(frame_data)
+                            conn.send(frame_size.to_bytes(4, byteorder='big'))
+                            # Then send the actual frame data
+                            conn.send(frame_data)
+                            print(f"[Frame Transfer] Sent {frame_size} bytes over TCP")
+                        else:
+                            # Send 0 size to indicate no frame
+                            conn.send((0).to_bytes(4, byteorder='big'))
                     else:
-                        conn.send(b"N/A")
+                        # Send 0 size to indicate no frame available
+                        conn.send((0).to_bytes(4, byteorder='big'))
+                        
                 elif data == "capture_frame":
                     self._ursina_adapter.capture_frame()
                 elif data.startswith("set_speed"):
