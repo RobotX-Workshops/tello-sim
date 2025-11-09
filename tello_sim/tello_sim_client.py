@@ -69,12 +69,53 @@ class TelloSimClient:
             print(f"[Error] Unable to connect to the simulation at {self.host}:{self.port}")
     
     def get_frame_read(self) -> BackgroundFrameRead:
-        frame_path = self._request_data('get_latest_frame')
-        if frame_path != "N/A" and os.path.exists(frame_path):
-            image = cv2.imread(frame_path)
-            if image is not None:
-                return BackgroundFrameRead(frame=cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-        return BackgroundFrameRead(frame=np.zeros([360, 640, 3], dtype=np.uint8))
+        """Get the latest frame directly from the simulator over TCP."""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((self.host, self.port))
+                s.send(b'get_latest_frame')
+                
+                # Receive frame size (4 bytes)
+                size_data = s.recv(4)
+                if len(size_data) != 4:
+                    print("[Error] Failed to receive frame size")
+                    return BackgroundFrameRead(frame=np.zeros([360, 640, 3], dtype=np.uint8))
+                
+                frame_size = int.from_bytes(size_data, byteorder='big')
+                
+                # If size is 0, no frame available
+                if frame_size == 0:
+                    print("[Debug] No frame available from simulator")
+                    return BackgroundFrameRead(frame=np.zeros([360, 640, 3], dtype=np.uint8))
+                
+                # Receive the frame data
+                frame_data = b''
+                bytes_received = 0
+                while bytes_received < frame_size:
+                    chunk = s.recv(min(4096, frame_size - bytes_received))
+                    if not chunk:
+                        break
+                    frame_data += chunk
+                    bytes_received += len(chunk)
+                
+                # Decode the frame from PNG bytes
+                if len(frame_data) == frame_size:
+                    nparr = np.frombuffer(frame_data, np.uint8)
+                    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    if image is not None:
+                        # Return frame in BGR format (OpenCV's native format)
+                        # Users should convert to RGB if needed for display
+                        return BackgroundFrameRead(frame=image)
+                
+                print("[Error] Failed to decode frame data")
+                return BackgroundFrameRead(frame=np.zeros([360, 640, 3], dtype=np.uint8))
+                
+        except ConnectionRefusedError:
+            print(f"[Error] Unable to connect to the simulation at {self.host}:{self.port}")
+            return BackgroundFrameRead(frame=np.zeros([360, 640, 3], dtype=np.uint8))
+        except Exception as e:
+            print(f"[Error] Failed to get frame: {e}")
+            return BackgroundFrameRead(frame=np.zeros([360, 640, 3], dtype=np.uint8))
     
     def _request_data(self, command):
         try:

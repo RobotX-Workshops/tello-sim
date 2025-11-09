@@ -87,3 +87,4 @@ cython_debug/
 .devcontainer/devcontainer.json
 
 output/
+artifacts/
