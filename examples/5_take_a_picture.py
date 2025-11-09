@@ -20,7 +20,7 @@ tello.streamoff()
 
 # Prepare directory to save
 script_dir = os.path.dirname(__file__)
-artifact_folder_path = os.path.join(script_dir, "../artifacts/images")
+artifact_folder_path = os.path.join(os.path.dirname(script_dir), "artifacts", "images")
 os.makedirs(artifact_folder_path, exist_ok=True)
 
 print("[Example] Saving captured picture to:", artifact_folder_path)
