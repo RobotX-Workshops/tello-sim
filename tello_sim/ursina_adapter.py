@@ -923,8 +923,6 @@ class UrsinaAdapter():
         
         if self.stream_active:
             self.capture_frame()
-        
-        
 
         if not moving:
             self.pitch_angle = 0  # Reset pitch when not moving
