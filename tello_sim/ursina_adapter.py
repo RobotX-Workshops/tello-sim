@@ -57,6 +57,11 @@ class UrsinaAdapter():
         self.stream_active = False
         self.is_connected = False
         self.recording_folder = "tello_recording"
+        
+        # Create recording folder if it doesn't exist
+        if not os.path.exists(self.recording_folder):
+            os.makedirs(self.recording_folder)
+            
         self.frame_count = 0
         self.saved_frames = []
         self.screenshot_interval = 3  
