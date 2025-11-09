@@ -57,11 +57,6 @@ class UrsinaAdapter():
         self.stream_active = False
         self.is_connected = False
         self.recording_folder = "tello_recording"
-        
-        # Create recording folder if it doesn't exist
-        if not os.path.exists(self.recording_folder):
-            os.makedirs(self.recording_folder)
-            
         self.frame_count = 0
         self.saved_frames = []
         self.screenshot_interval = 3  
@@ -833,7 +828,7 @@ class UrsinaAdapter():
 
           
     def capture_frame(self):
-        """Capture and save the latest FPV frame from update()"""
+        """Capture the latest FPV frame. Optionally save to disk if save_frames_to_disk is True."""
         if not self.stream_active:
             print("[Capture] Stream not active. Cannot capture frame.")
             return  
@@ -842,11 +837,9 @@ class UrsinaAdapter():
             print("[Capture] No latest frame available.")
             return
 
-        frame_path = os.path.join(self.recording_folder, f"frame_{self.frame_count}.png")
-        cv2.imwrite(frame_path, self.latest_frame)
-        self.saved_frames.append(frame_path)
+        # Always increment frame count for tracking
         self.frame_count += 1
-        print(f"[Capture] Screenshot {self.frame_count} saved: {frame_path}")
+        print(f"[Capture] Frame {self.frame_count} captured (memory only)")
         
     def set_speed(self, x: int):
         """Set drone speed by adjusting acceleration force.
@@ -904,7 +897,7 @@ class UrsinaAdapter():
         
         if self.bezier_mode:
             t_now = time()
-            elapsed = t_now - self.bezier_start_time
+            elapsed = t_now - self.bezier_start_time # type: ignore
             t = min(1.0, elapsed / self.bezier_duration)
 
             # Bézier point

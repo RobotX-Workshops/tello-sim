@@ -87,4 +87,3 @@ cython_debug/
 .devcontainer/devcontainer.json
 
 output/
-tello_recording/

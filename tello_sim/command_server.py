@@ -1,6 +1,6 @@
 import os
 import socket
-from ursina import *
+from ursina import * # type: ignore
 from time import time
 import cv2
 from ursina_adapter import UrsinaAdapter
