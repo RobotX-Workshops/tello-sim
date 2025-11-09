@@ -58,7 +58,6 @@ If you prefer to set up the environment manually:
    export PYTHONPATH=$PWD
    ```
 
-
 ## Running the simulation
 
 To run the simulation, run the following command:
