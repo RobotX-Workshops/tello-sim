@@ -786,6 +786,7 @@ class UrsinaAdapter():
     def _motion_complete_callback(self):
         self.is_moving = False
         self._execute_next_command()
+        
     def land(self) -> None:
         if self.is_moving:
             print("Tello Simulator: Movement in progress. Deferring landing...")
