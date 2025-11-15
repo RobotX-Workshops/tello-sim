@@ -163,7 +163,6 @@ class UrsinaAdapter():
             scale=(15, 15, 12),  
             position=(-123, 0.0, 260), 
             rotation=(0, 0, 0),
-            collider='none',
             cast_shadow=True
         )
         
@@ -181,7 +180,6 @@ class UrsinaAdapter():
             scale=(4, 6.5, 5),  
             position=(-55, 2.5, 260),  
             rotation=(0, -90, 0),
-            collider='none',
             cast_shadow=True
         )
 
@@ -191,7 +189,6 @@ class UrsinaAdapter():
             scale=(4, 6.5, 5),  
             position=(25, 2.5, 95),  
             rotation=(0, 90, 0),
-            collider='none',
             cast_shadow=True
         )
 
@@ -200,7 +197,6 @@ class UrsinaAdapter():
             scale=(4, 6.5, 5),  
             position=(-55, 2.5, -70),  
             rotation=(0, -90, 0),
-            collider='none',
             cast_shadow=True
         )
 
@@ -221,8 +217,7 @@ class UrsinaAdapter():
             model='entities/tunnel_3.glb',
             scale=(63, 45, 45),  
             position=(-199, 3.0, 380),  
-            rotation=(0, 0, 0),  
-            collider='None',
+            rotation=(0, 0, 0),
             cast_shadow=True
         )
         
