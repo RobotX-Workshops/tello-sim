@@ -5,6 +5,17 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Run Tello Simulator",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tello_sim/run_sim.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        }, 
+        {
             "name": "Python Debugger: Current File",
             "type": "debugpy",
             "request": "launch",

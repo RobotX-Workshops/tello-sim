@@ -1,4 +1,4 @@
-ursina
-PyOpenGL
-numpy
-opencv-python
+ursina==7.0.0
+PyOpenGL==3.1.9
+numpy==2.2.3
+opencv-python==4.11.0.86
