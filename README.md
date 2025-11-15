@@ -37,7 +37,7 @@ If you prefer to set up the environment manually:
 1. Create the virtual environment by running:
 
    ```bash
-   python3 -m venv venv
+   python3.12 -m venv venv
    ```
 
 2. Activate the virtual environment by running:
@@ -69,3 +69,7 @@ python tello_sim/run_sim.py
 You can try running some of the [examples](./examples) to see how the simulation works. The examples are located in the `examples` folder.
 
 Or use the [client](./tello_sim/tello_sim_client.py) class to interact with the simulation server. The client class is located in the `tello_sim` folder.
+
+## Troubleshooting
+
+- For a specific python version on macOS, consider using [pyenv](https://github.com/pyenv/pyenv?tab=readme-ov-file#b-set-up-your-shell-environment-for-pyenv) to manage multiple python versions. 
