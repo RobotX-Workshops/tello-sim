@@ -49,7 +49,7 @@ If you prefer to set up the environment manually:
 3. Install the required packages by running:
 
    ```bash
-   pip install -r requirements.txt
+   pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -r requirements.txt
    ```
 
 4. Export the python path by running:
