@@ -72,4 +72,18 @@ Or use the [client](./tello_sim/tello_sim_client.py) class to interact with the 
 
 ## Troubleshooting
 
-- For a specific python version on macOS, consider using [pyenv](https://github.com/pyenv/pyenv?tab=readme-ov-file#b-set-up-your-shell-environment-for-pyenv) to manage multiple python versions. 
+- For a specific python version on macOS, consider using [pyenv](https://github.com/pyenv/pyenv?tab=readme-ov-file#b-set-up-your-shell-environment-for-pyenv) to manage multiple python versions.
+- Another alternative for macOS users is to use [Homebrew](https://brew.sh/) to install the desired python version:
+
+  ```bash
+  brew install python@3.12
+  ```
+
+- Conda users can create an environment with the desired python version:
+
+  ```bash
+  conda create -n tello-sim python=3.12
+  conda activate tello-sim
+  pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -r requirements.txt
+  export PYTHONPATH=$PWD
+  ```
