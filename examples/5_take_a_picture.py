@@ -2,7 +2,7 @@ import os
 import cv2
 import time
 import numpy as np
-from tello_sim.tello_sim_client import TelloSimClient
+from tello_sim_client import TelloSimClient
 
 # Initialize and connect
 tello = TelloSimClient()

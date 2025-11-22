@@ -1,8 +1,8 @@
-from tello_sim.tello_sim_client import TelloSimClient
+from tello_sim_client import TelloSimClient
 
 import time
 
-from tello_sim.tello_sim_client import TelloSimClient
+from tello_sim_client import TelloSimClient
 
 # Create a Tello instance
 tello = TelloSimClient()

@@ -1,5 +1,5 @@
 "Here try to create a script that navigates the drone through a course."
-from tello_sim.tello_sim_client import TelloSimClient
+from tello_sim_client import TelloSimClient
 
 import time
 
