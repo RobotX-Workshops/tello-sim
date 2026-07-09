@@ -1,0 +1,90 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  # secrets-gate: `pull_request` runs from forks have no access to repository
+  # secrets, so a job that needs CLAUDE_CODE_OAUTH_TOKEN would fail rather than
+  # skip. Job-level `if:` conditions can't reference `secrets.*` directly, so we
+  # check the secret here, emit an output, and gate `claude-review` on it.
+  # Until the CLAUDE_CODE_OAUTH_TOKEN secret is set on the repo this workflow is
+  # a no-op (the review job is skipped), so it is safe to merge before the token
+  # exists.
+  secrets-gate:
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      ok: ${{ steps.check.outputs.ok }}
+    steps:
+      - name: Check for CLAUDE_CODE_OAUTH_TOKEN
+        id: check
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          if [[ -n "${CLAUDE_CODE_OAUTH_TOKEN}" ]]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  claude-review:
+    needs: secrets-gate
+    if: ${{ needs.secrets-gate.outputs.ok == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # write on pull-requests + issues so `gh pr comment` (issues-comments
+      # API under the hood) can post the review back to the PR timeline.
+      # The default-read scopes would silently 403 the comment step.
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          # Don't persist GITHUB_TOKEN in .git/config: this job hands a
+          # shell to claude-code-action and never pushes, so the token
+          # would just sit on disk where the agent could read it.
+          persist-credentials: false
+
+      - name: Run Claude Code Review
+        id: claude-review
+        # Pinned to the commit SHA behind the v1 tag (476e359) per GitHub
+        # Actions supply-chain hardening guidance — bump together with a
+        # deliberate review.
+        uses: anthropics/claude-code-action@476e359e6203e73dad705c8b322e333fabbd7416  # v1
+        with:
+          # Generate via `claude setup-token` (Claude Code CLI) and store as a
+          # repo secret named CLAUDE_CODE_OAUTH_TOKEN. Rotate by re-running
+          # `setup-token` and replacing the secret.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The reviewer brief lives in .claude/prompts/adversarial_reviewer.md
+          # (vendored from RobotX-Workshops/claude-skills) so this CI run and the
+          # local /local-pr-review skill share a single source of truth. Edit the
+          # brief there, not here.
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Read the file `.claude/prompts/adversarial_reviewer.md` in this
+            checkout and follow it exactly — that is your full reviewer brief,
+            including ground rules, the categories to hunt for, the output
+            format, and the mandatory bot-review-marker line.
+
+            After producing the review in the format that prompt specifies, use
+            `gh pr comment` with your Bash tool to post it as a comment on the
+            PR. Do not summarise, do not paraphrase, do not add a meta-preamble
+            — post the review body verbatim.
+
+          # Read/Grep/Glob let the reviewer consult CLAUDE.md / AGENTS.md /
+          # README / docs before writing the review; the gh Bash allowlist lets
+          # it read PR/issue context and post the comment. --model pins the
+          # reviewer to Haiku 4.5 to stay inside the Claude Code plan quota; bump
+          # deliberately if review quality regresses.
+          claude_args: '--model claude-haiku-4-5-20251001 --allowed-tools "Read,Grep,Glob,Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
