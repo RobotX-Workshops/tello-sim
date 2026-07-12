@@ -74,7 +74,7 @@ DEFAULT_GATES = [
 ]
 
 
-def _clamp(value, low, high):
+def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
@@ -384,10 +384,10 @@ class UrsinaAdapter():
         self.create_gate_editor()
 
     # ------------------------------------------------------------------ gates ---
-    def _gates_config_path(self):
+    def _gates_config_path(self) -> str:
         return os.path.join(os.path.dirname(__file__), 'gates.json')
 
-    def load_gate_specs(self):
+    def load_gate_specs(self) -> list[dict]:
         """Load the gate layout from gates.json, falling back to the defaults."""
         path = self._gates_config_path()
         if os.path.exists(path):
@@ -400,7 +400,7 @@ class UrsinaAdapter():
                 print(f"[Gates] Failed to load {path}: {e}")
         return [dict(g) for g in DEFAULT_GATES]
 
-    def save_gate_specs(self):
+    def save_gate_specs(self) -> None:
         """Persist the current gate layout to gates.json."""
         path = self._gates_config_path()
         try:
@@ -410,24 +410,24 @@ class UrsinaAdapter():
         except Exception as e:
             print(f"[Gates] Failed to save layout: {e}")
 
-    def build_gates(self):
+    def build_gates(self) -> None:
         """(Re)build every gate entity from self.gate_specs."""
         for gate in self.gates:
             destroy(gate)
         self.gates = [self._make_gate_entity(spec) for spec in self.gate_specs]
 
-    def rebuild_gate(self, index):
+    def rebuild_gate(self, index: int) -> None:
         """Rebuild a single gate in place (used when its diameter changes)."""
         destroy(self.gates[index])
         self.gates[index] = self._make_gate_entity(self.gate_specs[index])
 
     @staticmethod
-    def _gate_center_y(diameter_cm, clearance_cm):
+    def _gate_center_y(diameter_cm: float, clearance_cm: float) -> float:
         """Y of the ring centre so its bottom sits `clearance_cm` above ground."""
         radius = (diameter_cm / 2) * GATE_DIAMETER_SCALE
         return GROUND_Y + clearance_cm * UNITS_PER_CM + radius
 
-    def _make_gate_entity(self, spec, segments=48):
+    def _make_gate_entity(self, spec: dict, segments: int = 48) -> Entity:
         """Build one colored ring from a cm-based spec.
 
         The ring is a torus (a small Circle cross-section extruded along a
@@ -458,7 +458,7 @@ class UrsinaAdapter():
         )
 
     # ----------------------------------------------------------- gate editor ---
-    def create_gate_editor(self):
+    def create_gate_editor(self) -> None:
         """Build the in-sim panel of sliders for editing gates at runtime."""
         self.selected_gate_index = 0
         self._suppress_slider_cb = False
@@ -513,23 +513,23 @@ class UrsinaAdapter():
 
         self._sync_editor_to_gate()
 
-    def toggle_gate_editor(self):
+    def toggle_gate_editor(self) -> None:
         self.gate_editor_panel.enabled = not self.gate_editor_panel.enabled
         if self.gate_editor_panel.enabled:
             self._sync_editor_to_gate()
 
-    def _update_editor_visibility(self):
+    def _update_editor_visibility(self) -> None:
         """Hide the gate editor while streaming so it isn't captured in the video."""
         streaming = self.stream_active
         self.gate_editor_toggle.enabled = not streaming
         if streaming and self.gate_editor_panel.enabled:
             self.gate_editor_panel.enabled = False
 
-    def _select_next_gate(self):
+    def _select_next_gate(self) -> None:
         self.selected_gate_index = (self.selected_gate_index + 1) % len(self.gate_specs)
         self._sync_editor_to_gate()
 
-    def _sync_editor_to_gate(self):
+    def _sync_editor_to_gate(self) -> None:
         """Load the selected gate's values into the sliders (without firing edits)."""
         spec = self.gate_specs[self.selected_gate_index]
         self._suppress_slider_cb = True
@@ -543,7 +543,7 @@ class UrsinaAdapter():
         self._suppress_slider_cb = False
         self._refresh_editor_labels()
 
-    def _refresh_editor_labels(self):
+    def _refresh_editor_labels(self) -> None:
         i = self.selected_gate_index
         spec = self.gate_specs[i]
         self.gate_select_button.text = (
@@ -554,7 +554,7 @@ class UrsinaAdapter():
         self.gate_height_slider.label.text = f"Height: {self.gate_height_slider.value:.0f} cm"
         self.gate_yaw_slider.label.text = f"Heading: {self.gate_yaw_slider.value:.0f}°"
 
-    def _on_gate_position_changed(self):
+    def _on_gate_position_changed(self) -> None:
         if self._suppress_slider_cb:
             return
         i = self.selected_gate_index
@@ -569,7 +569,7 @@ class UrsinaAdapter():
         gate.y = self._gate_center_y(spec['diameter_cm'], spec['clearance_cm'])
         self._refresh_editor_labels()
 
-    def _on_gate_diameter_changed(self):
+    def _on_gate_diameter_changed(self) -> None:
         if self._suppress_slider_cb:
             return
         i = self.selected_gate_index
@@ -579,7 +579,7 @@ class UrsinaAdapter():
         self.rebuild_gate(i)  # diameter changes the mesh, so rebuild it
         self._refresh_editor_labels()
 
-    def _on_gate_yaw_changed(self):
+    def _on_gate_yaw_changed(self) -> None:
         if self._suppress_slider_cb:
             return
         i = self.selected_gate_index
@@ -588,7 +588,7 @@ class UrsinaAdapter():
         self.gates[i].rotation_y = spec['yaw']  # cheap: just re-orient the ring
         self._refresh_editor_labels()
 
-    def create_propeller(self, local_pos, radius=15):
+    def create_propeller(self, local_pos: tuple, radius: float = 15) -> Entity:
         """Build a translucent spinning-blur visual for one rotor.
 
         Returns a flat pivot entity parented to the drone (so it tracks the
@@ -792,7 +792,9 @@ class UrsinaAdapter():
         return int(self.drone.rotation_z)  
 
     def get_speed_x(self) -> int:
-        return int(self.measured_velocity.x * 3.6)
+        # measured_velocity is in world units/s; 1 unit = 0.1 m (same scale
+        # as get_speed_y's altitude), then m/s -> km/h.
+        return int(self.measured_velocity.x * 0.1 * 3.6)
 
     def get_speed_y(self) -> int:
         current_time = time()
@@ -807,22 +809,22 @@ class UrsinaAdapter():
         return 0
 
     def get_speed_z(self) -> int:
-        return int(self.measured_velocity.z * 3.6)
+        return int(self.measured_velocity.z * 0.1 * 3.6)
 
     def get_acceleration_x(self) -> float:
         """Return the current acceleration in the X direction."""
-        return self.acceleration.x * 100  
+        return self.calculated_acceleration.x * 100
 
     def get_acceleration_y(self) -> float:
         """Return the current acceleration in the Y direction."""
-        return self.acceleration.y * 100  
+        return self.calculated_acceleration.y * 100
 
     def get_acceleration_z(self) -> float:
         """Return the current acceleration in the Z direction."""
-        return self.acceleration.z * 100  
+        return self.calculated_acceleration.z * 100
     
     def rotate_smooth(self, angle):
-        def command():
+        def command() -> None:
             target_yaw = self.drone.rotation_y + angle
             duration = max(0.5, abs(angle) / 90)
             self.drone.animate('rotation_y', target_yaw, duration=duration, curve=curve.in_out_quad)
@@ -831,12 +833,12 @@ class UrsinaAdapter():
 
         self.enqueue_command(command)
 
-    def change_altitude_smooth(self, direction: str, distance: float):
+    def change_altitude_smooth(self, direction: str, distance: float) -> None:
         if direction not in ("up", "down"):
             print(f"Invalid altitude direction: {direction}")
             return
 
-        def command():
+        def command() -> None:
             delta = distance / 20
             current_altitude = self.drone.y
             if direction == "up":
@@ -929,7 +931,7 @@ class UrsinaAdapter():
 
         self.acceleration = Vec3(0, 0, 0)
 
-        self.measured_velocity = self.drone.position - self._last_position
+        displacement = self.drone.position - self._last_position
         self._last_position = Vec3(self.drone.position)
 
         # Apply pitch and roll to the drone
@@ -939,6 +941,9 @@ class UrsinaAdapter():
         dt = current_time - self.last_time_accel
 
         if dt > 0:
+            # Normalize the per-frame displacement by elapsed time so the
+            # telemetry speed (world units/s) is frame-rate independent.
+            self.measured_velocity = displacement / dt
             velocity_change = self.measured_velocity - self.last_velocity_accel
             self.calculated_acceleration = velocity_change / dt # type: ignore
 
@@ -972,7 +977,7 @@ class UrsinaAdapter():
         command_func(*args, **kwargs)
         
     def move(self, direction: Literal["forward", "backward", "left", "right"], distance: float) -> None:
-        def command():
+        def command() -> None:
             if direction == "forward":
                 dir_vec = self.drone.forward
                 self.pitch_angle = self.max_pitch
@@ -1008,7 +1013,7 @@ class UrsinaAdapter():
 
         self.enqueue_command(command)
 
-    def _reset_tilt(self):
+    def _reset_tilt(self) -> None:
         self.pitch_angle = 0
         self.roll_angle = 0
 
@@ -1074,7 +1079,7 @@ class UrsinaAdapter():
         """
         Moves in a linear path to the specified coordinates at the given speed.
         """
-        def command():
+        def command() -> None:
             print(f"Tello Simulator: GO command to X:{x}, Y:{y}, Z:{z} at speed {speed_ms} cm/s")
 
             target_position = self.drone.position + self.map_coords(x / 10, y / 10, z / 10)
@@ -1113,7 +1118,7 @@ class UrsinaAdapter():
         self.bezier_mode = True
     
     def curve_xyz_speed(self, x1: float, y1: float, z1: float, x2: float, y2: float, z2: float, speed: float) -> None:
-        def command():
+        def command() -> None:
             self.start_bezier_motion(x1, y1, z1, x2, y2, z2, speed)
         self.enqueue_command(command)
                 
