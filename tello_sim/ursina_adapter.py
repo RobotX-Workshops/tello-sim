@@ -1,4 +1,5 @@
 import os
+import json
 from PIL import Image
 from OpenGL.GL import glReadPixels, GL_RGBA, GL_UNSIGNED_BYTE
 import numpy as np
@@ -13,6 +14,9 @@ from ursina import (
     camera,
     Quad,
     Circle,
+    Pipe,
+    pi,
+    cos,
     sin,
     EditorCamera,
     Vec3,
@@ -23,9 +27,55 @@ from ursina import (
     Sky,
     raycast,
     lerp,
+    destroy,
+    Button,
+    Slider,
+    WindowPanel,
 )
 from time import sleep, time
 from cv2.typing import MatLike
+
+
+# --- Gate configuration --------------------------------------------------------
+# The world isn't built to a real-world scale, and the drone model is large
+# (~5.9 world units across). Gate diameters are given in nominal "cm" but scaled
+# up so a 23-50 cm gate is actually big enough for the drone to fly through.
+# Height/clearance uses the movement scale (1 cm -> 0.1 units).
+GATE_DIAMETER_SCALE = 0.36     # cm -> world units for gate diameter (fits the drone)
+UNITS_PER_CM = 0.1             # cm -> world units for gate height/clearance
+GROUND_Y = 3.0                 # drone floor clamp; used as the ground reference
+
+MIN_GATE_DIAMETER_CM = 23.0
+MAX_GATE_DIAMETER_CM = 50.0
+MIN_GATE_CLEARANCE_CM = 30.0   # minimum gap from ground to the bottom of the ring
+MAX_GATE_CLEARANCE_CM = 200.0  # upper bound for the editor's height slider
+
+# Lateral / along-corridor bounds for the editor position sliders.
+GATE_X_RANGE = (-55.0, 25.0)
+GATE_Z_RANGE = (-50.0, 370.0)
+GATE_YAW_RANGE = (-180.0, 180.0)  # gate heading in degrees (0 = opening faces +z)
+
+GATE_COLORS = {
+    'yellow': color.yellow,
+    'green': color.green,
+    'red': color.red,
+    'blue': color.blue,
+    'violet': color.violet,   # Ursina's name for purple
+}
+
+# Default gate layout: alternating heights (>= 30 cm clearance) and varied
+# diameters (23-50 cm) along the flight corridor. Overridden by gates.json if present.
+DEFAULT_GATES = [
+    {'color': 'yellow', 'x': -15, 'z': 45,  'diameter_cm': 30, 'clearance_cm': 30, 'yaw': 0},
+    {'color': 'green',  'x': -15, 'z': 100, 'diameter_cm': 45, 'clearance_cm': 55, 'yaw': 0},
+    {'color': 'red',    'x': -14, 'z': 200, 'diameter_cm': 23, 'clearance_cm': 40, 'yaw': 0},
+    {'color': 'blue',   'x': -15, 'z': 270, 'diameter_cm': 50, 'clearance_cm': 70, 'yaw': 0},
+    {'color': 'violet', 'x': -15, 'z': 340, 'diameter_cm': 35, 'clearance_cm': 45, 'yaw': 0},
+]
+
+
+def _clamp(value, low, high):
+    return max(low, min(high, value))
 
 
 class UrsinaAdapter():
@@ -111,6 +161,22 @@ class UrsinaAdapter():
             collider='box',
             cast_shadow=True
         )
+
+        # Translucent "blur" discs over each rotor to convey spin while flying.
+        # Hidden on the ground (the model's molded blades show as still).
+        self.propeller_spin_speed = 6000  # degrees per second
+        self.propellers = []
+        # Rotor hub centers measured from the tello.glb propeller sub-meshes
+        # (drone-local units; the molded blades top out at y ~= 25.1).
+        rotor_offsets = [
+            Vec3(-24.3, 21.5,  22.0),
+            Vec3( 24.3, 21.5,  22.0),
+            Vec3(-24.2, 21.5, -22.0),
+            Vec3( 24.2, 21.5, -22.0),
+        ]
+        for i, offset in enumerate(rotor_offsets):
+            spin_dir = 1 if i % 2 == 0 else -1  # counter-rotating pairs, like a real quad
+            self.propellers.append((self.create_propeller(offset), spin_dir))
 
         self.car = Entity(
             model='entities/dirty_car.glb',
@@ -249,6 +315,12 @@ class UrsinaAdapter():
             cast_shadow=True
         )
         
+        # Colored circular gates for the drone to fly through. Sizes/positions are
+        # loaded from gates.json (or DEFAULT_GATES) and editable at runtime.
+        self.gate_specs = self.load_gate_specs()
+        self.gates = []
+        self.build_gates()
+
         self.station = Entity(
             model='entities/gas_station_-_gta_v.glb',
             scale=(12.7, 10, 10),  
@@ -282,20 +354,25 @@ class UrsinaAdapter():
         self.drone_camera.parent = self.camera_holder
         self.third_person_position = (0, 5, -15)
         self.third_person_rotation = (10, 0, 0)
-        self.first_person_position = (0, 0.5, 22)  
+        self.first_person_position = (0, 0.5, 22)
         self.drone_camera.position = self.third_person_position
         self.drone_camera.rotation = self.third_person_rotation
         self.is_flying = False
 
         self.velocity: Vec3 = Vec3(0, 0, 0)
+        # Measured per-frame displacement, for telemetry. Animated moves don't
+        # go through self.velocity, so speeds are derived from position deltas.
+        self.measured_velocity: Vec3 = Vec3(0, 0, 0)
+        self._last_position: Vec3 = Vec3(self.drone.position)
         self.acceleration: Vec3 = Vec3(0, 0, 0)
         self.calculated_acceleration: Vec3 = Vec3(0, 0, 0)
         self.last_velocity_accel: Vec3 = Vec3(0, 0, 0)
         self.last_time_accel = time()
         self.drag: float = 0.93  
         self.rotation_speed: float = 5  
-        self.max_speed = 1.8  
-        self.accel_force = 0.65  
+        self.max_speed = 1.8
+        self.accel_force = 0.65
+        self.speed_cm_s = 50  # discrete-move speed (Tello range 10-100 cm/s)
 
         self.pitch_angle = 0  
         self.roll_angle = 0  
@@ -304,7 +381,247 @@ class UrsinaAdapter():
         self.tilt_smoothness = 0.05  
 
         self.create_meters()
-        
+        self.create_gate_editor()
+
+    # ------------------------------------------------------------------ gates ---
+    def _gates_config_path(self):
+        return os.path.join(os.path.dirname(__file__), 'gates.json')
+
+    def load_gate_specs(self):
+        """Load the gate layout from gates.json, falling back to the defaults."""
+        path = self._gates_config_path()
+        if os.path.exists(path):
+            try:
+                with open(path) as f:
+                    data = json.load(f)
+                if isinstance(data, list) and data:
+                    return [dict(g) for g in data]
+            except Exception as e:
+                print(f"[Gates] Failed to load {path}: {e}")
+        return [dict(g) for g in DEFAULT_GATES]
+
+    def save_gate_specs(self):
+        """Persist the current gate layout to gates.json."""
+        path = self._gates_config_path()
+        try:
+            with open(path, 'w') as f:
+                json.dump(self.gate_specs, f, indent=2)
+            print(f"[Gates] Saved layout to {path}")
+        except Exception as e:
+            print(f"[Gates] Failed to save layout: {e}")
+
+    def build_gates(self):
+        """(Re)build every gate entity from self.gate_specs."""
+        for gate in self.gates:
+            destroy(gate)
+        self.gates = [self._make_gate_entity(spec) for spec in self.gate_specs]
+
+    def rebuild_gate(self, index):
+        """Rebuild a single gate in place (used when its diameter changes)."""
+        destroy(self.gates[index])
+        self.gates[index] = self._make_gate_entity(self.gate_specs[index])
+
+    @staticmethod
+    def _gate_center_y(diameter_cm, clearance_cm):
+        """Y of the ring centre so its bottom sits `clearance_cm` above ground."""
+        radius = (diameter_cm / 2) * GATE_DIAMETER_SCALE
+        return GROUND_Y + clearance_cm * UNITS_PER_CM + radius
+
+    def _make_gate_entity(self, spec, segments=48):
+        """Build one colored ring from a cm-based spec.
+
+        The ring is a torus (a small Circle cross-section extruded along a
+        circular path in the XY plane) so its opening faces along z, the
+        drone's travel axis. No collider, so the drone flies straight through.
+        """
+        diameter_cm = _clamp(spec['diameter_cm'], MIN_GATE_DIAMETER_CM, MAX_GATE_DIAMETER_CM)
+        clearance_cm = max(spec['clearance_cm'], MIN_GATE_CLEARANCE_CM)
+        radius = (diameter_cm / 2) * GATE_DIAMETER_SCALE
+        tube = max(radius * 0.09, 0.06)
+        center_y = self._gate_center_y(diameter_cm, clearance_cm)
+        ring_color = GATE_COLORS.get(spec.get('color'), color.white)
+        path = [
+            Vec3(cos(i / segments * 2 * pi) * radius,
+                 sin(i / segments * 2 * pi) * radius, 0)
+            for i in range(segments + 1)
+        ]
+        return Entity(
+            model=Pipe(
+                base_shape=Circle(resolution=12, radius=tube),
+                path=path,
+                cap_ends=False,
+            ),
+            color=ring_color,
+            position=(spec['x'], center_y, spec['z']),
+            rotation_y=spec.get('yaw', 0),  # heading: turns the ring's opening
+            cast_shadow=True,
+        )
+
+    # ----------------------------------------------------------- gate editor ---
+    def create_gate_editor(self):
+        """Build the in-sim panel of sliders for editing gates at runtime."""
+        self.selected_gate_index = 0
+        self._suppress_slider_cb = False
+
+        self.gate_x_slider = Slider(*GATE_X_RANGE, default=0, text='X', dynamic=True)
+        self.gate_z_slider = Slider(*GATE_Z_RANGE, default=0, text='Z', dynamic=True)
+        self.gate_dia_slider = Slider(
+            MIN_GATE_DIAMETER_CM, MAX_GATE_DIAMETER_CM, default=MIN_GATE_DIAMETER_CM,
+            text='Diameter', dynamic=True)
+        self.gate_height_slider = Slider(
+            MIN_GATE_CLEARANCE_CM, MAX_GATE_CLEARANCE_CM, default=MIN_GATE_CLEARANCE_CM,
+            text='Height', dynamic=True)
+        self.gate_yaw_slider = Slider(*GATE_YAW_RANGE, default=0, text='Heading', dynamic=True)
+
+        self.gate_x_slider.on_value_changed = self._on_gate_position_changed
+        self.gate_z_slider.on_value_changed = self._on_gate_position_changed
+        self.gate_height_slider.on_value_changed = self._on_gate_position_changed
+        self.gate_dia_slider.on_value_changed = self._on_gate_diameter_changed
+        self.gate_yaw_slider.on_value_changed = self._on_gate_yaw_changed
+
+        self.gate_select_button = Button(text='Gate: -', color=color.azure)
+        self.gate_select_button.on_click = self._select_next_gate
+        save_button = Button(text='Save to gates.json', color=color.green)
+        save_button.on_click = self.save_gate_specs
+
+        self.gate_editor_panel = WindowPanel(
+            title='Gate Editor',
+            content=(
+                self.gate_select_button,
+                self.gate_x_slider,
+                self.gate_z_slider,
+                self.gate_dia_slider,
+                self.gate_height_slider,
+                self.gate_yaw_slider,
+                save_button,
+            ),
+            popup=False,
+        )
+        # Anchor near the top-left and shrink so the whole panel stays on screen
+        # (Ursina's default sliders are wide). The panel is draggable by its title.
+        self.gate_editor_panel.scale *= 0.7
+        self.gate_editor_panel.x = -0.15
+        self.gate_editor_panel.y = 0.4
+        self.gate_editor_panel.enabled = False
+
+        # Always-visible toggle for the editor panel.
+        self.gate_editor_toggle = Button(
+            parent=camera.ui, text='Edit Gates', color=color.azure,
+            scale=(0.15, 0.05), position=(-0.7, -0.43),
+        )
+        self.gate_editor_toggle.on_click = self.toggle_gate_editor
+
+        self._sync_editor_to_gate()
+
+    def toggle_gate_editor(self):
+        self.gate_editor_panel.enabled = not self.gate_editor_panel.enabled
+        if self.gate_editor_panel.enabled:
+            self._sync_editor_to_gate()
+
+    def _update_editor_visibility(self):
+        """Hide the gate editor while streaming so it isn't captured in the video."""
+        streaming = self.stream_active
+        self.gate_editor_toggle.enabled = not streaming
+        if streaming and self.gate_editor_panel.enabled:
+            self.gate_editor_panel.enabled = False
+
+    def _select_next_gate(self):
+        self.selected_gate_index = (self.selected_gate_index + 1) % len(self.gate_specs)
+        self._sync_editor_to_gate()
+
+    def _sync_editor_to_gate(self):
+        """Load the selected gate's values into the sliders (without firing edits)."""
+        spec = self.gate_specs[self.selected_gate_index]
+        self._suppress_slider_cb = True
+        self.gate_x_slider.value = _clamp(spec['x'], *GATE_X_RANGE)
+        self.gate_z_slider.value = _clamp(spec['z'], *GATE_Z_RANGE)
+        self.gate_dia_slider.value = _clamp(
+            spec['diameter_cm'], MIN_GATE_DIAMETER_CM, MAX_GATE_DIAMETER_CM)
+        self.gate_height_slider.value = _clamp(
+            spec['clearance_cm'], MIN_GATE_CLEARANCE_CM, MAX_GATE_CLEARANCE_CM)
+        self.gate_yaw_slider.value = _clamp(spec.get('yaw', 0), *GATE_YAW_RANGE)
+        self._suppress_slider_cb = False
+        self._refresh_editor_labels()
+
+    def _refresh_editor_labels(self):
+        i = self.selected_gate_index
+        spec = self.gate_specs[i]
+        self.gate_select_button.text = (
+            f"Gate {i + 1}/{len(self.gate_specs)}: {spec.get('color', '?')}")
+        self.gate_x_slider.label.text = f"X (side): {self.gate_x_slider.value:.1f}"
+        self.gate_z_slider.label.text = f"Z (along): {self.gate_z_slider.value:.1f}"
+        self.gate_dia_slider.label.text = f"Diameter: {self.gate_dia_slider.value:.0f} cm"
+        self.gate_height_slider.label.text = f"Height: {self.gate_height_slider.value:.0f} cm"
+        self.gate_yaw_slider.label.text = f"Heading: {self.gate_yaw_slider.value:.0f}°"
+
+    def _on_gate_position_changed(self):
+        if self._suppress_slider_cb:
+            return
+        i = self.selected_gate_index
+        spec = self.gate_specs[i]
+        spec['x'] = round(self.gate_x_slider.value, 2)
+        spec['z'] = round(self.gate_z_slider.value, 2)
+        spec['clearance_cm'] = round(
+            max(self.gate_height_slider.value, MIN_GATE_CLEARANCE_CM), 1)
+        gate = self.gates[i]
+        gate.x = spec['x']
+        gate.z = spec['z']
+        gate.y = self._gate_center_y(spec['diameter_cm'], spec['clearance_cm'])
+        self._refresh_editor_labels()
+
+    def _on_gate_diameter_changed(self):
+        if self._suppress_slider_cb:
+            return
+        i = self.selected_gate_index
+        spec = self.gate_specs[i]
+        spec['diameter_cm'] = round(
+            _clamp(self.gate_dia_slider.value, MIN_GATE_DIAMETER_CM, MAX_GATE_DIAMETER_CM), 1)
+        self.rebuild_gate(i)  # diameter changes the mesh, so rebuild it
+        self._refresh_editor_labels()
+
+    def _on_gate_yaw_changed(self):
+        if self._suppress_slider_cb:
+            return
+        i = self.selected_gate_index
+        spec = self.gate_specs[i]
+        spec['yaw'] = round(self.gate_yaw_slider.value, 1)
+        self.gates[i].rotation_y = spec['yaw']  # cheap: just re-orient the ring
+        self._refresh_editor_labels()
+
+    def create_propeller(self, local_pos, radius=15):
+        """Build a translucent spinning-blur visual for one rotor.
+
+        Returns a flat pivot entity parented to the drone (so it tracks the
+        drone's position, tilt and yaw for free). The pivot is spun about its
+        local up-axis in `tick()`. Starts hidden; shown only while flying.
+        """
+        pivot = Entity(parent=self.drone, position=local_pos, visible=False)
+
+        # Faint disc for the motion-blur halo, laid flat (facing up).
+        # color.rgba here takes 0-1 floats, so alpha 0.27 keeps it translucent.
+        Entity(
+            parent=pivot,
+            model=Circle(resolution=24, radius=radius),
+            color=color.rgba(0.02, 0.02, 0.02, 0.3),
+            rotation_x=90,
+            double_sided=True,
+        )
+
+        # A few thin blade streaks so the rotation actually reads as motion
+        # (a symmetric disc alone shows no visible change when it turns).
+        for blade_angle in (0, 60, 120):
+            Entity(
+                parent=pivot,
+                model=Quad(radius=0.05),
+                color=color.rgba(0, 0, 0, 0.85),
+                rotation_x=90,
+                rotation_y=blade_angle,
+                scale=(radius * 3.0, radius * 0.46, 1),
+                double_sided=True,
+            )
+
+        return pivot
+
     def run(self):
         self.app.run()
         
@@ -475,7 +792,7 @@ class UrsinaAdapter():
         return int(self.drone.rotation_z)  
 
     def get_speed_x(self) -> int:
-        return int(self.velocity.x * 3.6)  
+        return int(self.measured_velocity.x * 3.6)
 
     def get_speed_y(self) -> int:
         current_time = time()
@@ -490,7 +807,7 @@ class UrsinaAdapter():
         return 0
 
     def get_speed_z(self) -> int:
-        return int(self.velocity.z * 3.6)  
+        return int(self.measured_velocity.z * 3.6)
 
     def get_acceleration_x(self) -> float:
         """Return the current acceleration in the X direction."""
@@ -505,27 +822,34 @@ class UrsinaAdapter():
         return self.acceleration.z * 100  
     
     def rotate_smooth(self, angle):
-        current_yaw = self.drone.rotation_y
-        target_yaw = current_yaw + angle
-        duration = abs(angle) / 90  
-        self.drone.animate('rotation_y', target_yaw, duration=duration, curve=curve.linear)
-        print(f"Tello Simulator: Smoothly rotating {angle} degrees over {duration:.2f} seconds.")
+        def command():
+            target_yaw = self.drone.rotation_y + angle
+            duration = max(0.5, abs(angle) / 90)
+            self.drone.animate('rotation_y', target_yaw, duration=duration, curve=curve.in_out_quad)
+            print(f"Tello Simulator: Smoothly rotating {angle} degrees over {duration:.2f} seconds.")
+            invoke(self._motion_complete_callback, delay=duration)
+
+        self.enqueue_command(command)
 
     def change_altitude_smooth(self, direction: str, distance: float):
-        delta = distance / 20  
-        current_altitude = self.drone.y
-
-        if direction == "up":
-            target_altitude = current_altitude + delta
-        elif direction == "down":
-            target_altitude = max(3, current_altitude - delta)  
-        else:
+        if direction not in ("up", "down"):
             print(f"Invalid altitude direction: {direction}")
             return
 
-        duration = abs(delta) * 1  
-        self.drone.animate('y', target_altitude, duration=duration, curve=curve.in_out_quad)
-        self.altitude = target_altitude
+        def command():
+            delta = distance / 20
+            current_altitude = self.drone.y
+            if direction == "up":
+                target_altitude = current_altitude + delta
+            else:
+                target_altitude = max(3, current_altitude - delta)
+
+            duration = max(0.5, abs(target_altitude - current_altitude))
+            self.drone.animate('y', target_altitude, duration=duration, curve=curve.in_out_quad)
+            self.altitude = target_altitude
+            invoke(self._motion_complete_callback, delay=duration)
+
+        self.enqueue_command(command)
     
     def update_meters(self):
         """Update telemetry meters"""
@@ -605,6 +929,9 @@ class UrsinaAdapter():
 
         self.acceleration = Vec3(0, 0, 0)
 
+        self.measured_velocity = self.drone.position - self._last_position
+        self._last_position = Vec3(self.drone.position)
+
         # Apply pitch and roll to the drone
         self.drone.rotation_x = lerp(self.drone.rotation_x, self.pitch_angle, self.tilt_smoothness)
         self.drone.rotation_z = lerp(self.drone.rotation_z, self.roll_angle, self.tilt_smoothness)
@@ -612,10 +939,10 @@ class UrsinaAdapter():
         dt = current_time - self.last_time_accel
 
         if dt > 0:
-            velocity_change = self.velocity - self.last_velocity_accel
+            velocity_change = self.measured_velocity - self.last_velocity_accel
             self.calculated_acceleration = velocity_change / dt # type: ignore
 
-            self.last_velocity_accel = Vec3(self.velocity.x, self.velocity.y, self.velocity.z)
+            self.last_velocity_accel = Vec3(self.measured_velocity.x, self.measured_velocity.y, self.measured_velocity.z)
             self.last_time_accel = current_time
         if self.first_person_view:
         
@@ -645,28 +972,47 @@ class UrsinaAdapter():
         command_func(*args, **kwargs)
         
     def move(self, direction: Literal["forward", "backward", "left", "right"], distance: float) -> None:
-        scale_factor = distance/10
-        if direction == "forward":
-            forward_vector = self.drone.forward * self.accel_force * scale_factor
-            forward_vector.y = 0  
-            self.acceleration += forward_vector
-            self.pitch_angle = self.max_pitch  
-        elif direction == "backward":
-            backward_vector = -self.drone.forward * self.accel_force * scale_factor
-            backward_vector.y = 0  
-            self.acceleration += backward_vector
-            self.pitch_angle = -self.max_pitch
-        elif direction == "left":
-            left_vector = -self.drone.right * self.accel_force * scale_factor
-            left_vector.y = 0  
-            self.acceleration += left_vector
-            self.roll_angle = -self.max_roll
-        elif direction == "right":
-            right_vector = self.drone.right * self.accel_force * scale_factor
-            right_vector.y = 0  
-            self.acceleration += right_vector
-            self.roll_angle = self.max_roll
-            
+        def command():
+            if direction == "forward":
+                dir_vec = self.drone.forward
+                self.pitch_angle = self.max_pitch
+            elif direction == "backward":
+                dir_vec = -self.drone.forward
+                self.pitch_angle = -self.max_pitch
+            elif direction == "left":
+                dir_vec = -self.drone.right
+                self.roll_angle = -self.max_roll
+            else:
+                dir_vec = self.drone.right
+                self.roll_angle = self.max_roll
+
+            dir_vec = Vec3(dir_vec.x, 0, dir_vec.z)
+            if dir_vec.length() == 0:
+                self._motion_complete_callback()
+                return
+            dir_vec = dir_vec.normalized()
+
+            # Clamp the move short of any obstacle: the animated path bypasses
+            # the per-tick velocity collision check in update_movement().
+            travel = distance / 10
+            hit_info = raycast(self.drone.position, dir_vec, distance=travel, ignore=(self.drone,))  # type: ignore
+            if hit_info.hit:
+                travel = max(0.0, hit_info.distance - 1.0)
+
+            target_position = self.drone.position + dir_vec * travel
+            duration = max(0.5, (travel * 10) / self.speed_cm_s)
+            self.drone.animate_position(target_position, duration=duration, curve=curve.in_out_quad)
+            # Ease the tilt back out before the move finishes.
+            invoke(self._reset_tilt, delay=duration * 0.7)
+            invoke(self._motion_complete_callback, delay=duration)
+
+        self.enqueue_command(command)
+
+    def _reset_tilt(self):
+        self.pitch_angle = 0
+        self.roll_angle = 0
+
+
     def toggle_camera_view(self) -> None:
         self.first_person_view = not self.first_person_view
         if self.first_person_view:
@@ -847,8 +1193,9 @@ class UrsinaAdapter():
             print(" Invalid speed! Speed must be between 10 and 100 cm/s.")
             return
 
-      
-        self.accel_force = (x / 100) * 1.5  
+
+        self.speed_cm_s = x
+        self.accel_force = (x / 100) * 1.5
         print(f" Speed set to {x} cm/s. Acceleration force: {self.accel_force}")
 
     def end(self) -> None:
@@ -861,10 +1208,28 @@ class UrsinaAdapter():
         """
         Update the simulator state
         """
+        # Spin the propeller blur discs while flying; hide them when stationary
+        # (the model's own molded blades show instead). Runs before the
+        # is_connected check so the discs still hide after end()/disconnect.
+        # land()/emergency() clear is_flying while the descent still animates,
+        # so also keep spinning until the drone reaches its rest height (2.6).
+        if self.is_flying or self.drone.y > 2.7:
+            angle = (time() - self.start_time) * self.propeller_spin_speed
+            for pivot, spin_dir in self.propellers:
+                pivot.visible = True
+                pivot.rotation_y = angle * spin_dir
+        else:
+            for pivot, _ in self.propellers:
+                pivot.visible = False
+
         if not self.is_connected:
-            return 
-             
+            return
+
         self.update_takeoff_indicator()
+
+        # Keep the gate editor hidden while streaming (the FPV grabs the whole frame).
+        self._update_editor_visibility()
+
         if self.stream_active:
             width, height = int(window.size[0]), int(window.size[1])
             try:
@@ -887,9 +1252,6 @@ class UrsinaAdapter():
             self.camera_holder.position = self.drone.position + Vec3(0, 3, -7)
             
             return
-        
-        moving = False
-        rolling = False
         
         if self.bezier_mode:
             t_now = time()
@@ -920,12 +1282,10 @@ class UrsinaAdapter():
         if self.stream_active:
             self.capture_frame()
 
-        if not moving:
-            self.pitch_angle = 0  # Reset pitch when not moving
-        
-        if not rolling:
-            self.roll_angle = 0  # Reset roll when not rolling
-        
+        if not self.is_moving:
+            self.pitch_angle = 0  # Reset tilt when no move is in progress
+            self.roll_angle = 0
+
         self.update_movement()
         self.update_pitch_roll()
 
