@@ -87,6 +87,17 @@ permissions:
   # out to fix.
   checks: write
 
+# Serialize evaluations for the same PR: an earlier `no-marker`/awaiting
+# run (e.g. from `pull_request_target`) could otherwise POST its
+# fail-closed verdict AFTER the completion-triggered success run and
+# overwrite the passing check-run. Newer events always carry the newer
+# state, so cancelling the older in-flight evaluation is safe. For
+# workflow_run events on fork PRs `pull_requests` can be empty, so fall
+# back to the reviewed head SHA as the group key.
+concurrency:
+  group: bot-blocking-gate-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.head_sha }}
+  cancel-in-progress: true
+
 jobs:
   gate:
     runs-on: ubuntu-latest
@@ -172,9 +183,13 @@ jobs:
             # OLDEST run for this SHA, which on a rerun reads stale
             # status/conclusion and can misclassify the skip /
             # in_progress cases.
-            run_id=$(gh api --paginate \
+            # `--slurp` collects all pages into one array before `--jq`
+            # runs — without it `--jq` is applied per page and a SHA with
+            # more than one page of runs would emit one id per page
+            # (newline-separated), corrupting $run_id.
+            run_id=$(gh api --paginate --slurp \
               "repos/${{ github.repository }}/actions/workflows/claude-code-review.yml/runs?head_sha=${SHA}&per_page=10" \
-              --jq '[.workflow_runs[]] | sort_by(.created_at) | reverse | .[0].id // empty')
+              --jq '[.[] | .workflow_runs[]] | sort_by(.created_at) | reverse | .[0].id // empty')
           fi
 
           if [[ -z "$run_id" ]]; then
@@ -192,9 +207,12 @@ jobs:
             # `claude-review` JOB's conclusion, not the workflow's.
             # `skipped` here means "secrets-gate said no" (fork PR /
             # missing secret).
-            review_job_conclusion=$(gh api --paginate \
+            # `--slurp` for the same reason as the run-id lookup above:
+            # per-page `--jq` would emit one value per page (e.g. "none"
+            # from a page without the claude-review job).
+            review_job_conclusion=$(gh api --paginate --slurp \
               "repos/${{ github.repository }}/actions/runs/${run_id}/jobs?per_page=100" \
-              --jq '[.jobs[] | select(.name == "claude-review")][0].conclusion // "none"')
+              --jq '[.[] | .jobs[] | select(.name == "claude-review")][0].conclusion // "none"')
           fi
           echo "Claude Code Review run on $SHA: status=$status workflow_conclusion=$conclusion claude_review_job_conclusion=$review_job_conclusion"
           echo "status=$status" >> "$GITHUB_OUTPUT"
@@ -258,7 +276,11 @@ jobs:
           # Confirmed bug upstream: greedy `.*blocking=([0-9]+)` returned
           # `1` from `nonblocking=1` instead of `0` from `blocking=0`, and
           # the gate red-failed PRs that should have passed.
-          blocking=$(printf '%s' "$latest" | grep -oP '(?<![a-zA-Z])blocking=\K[0-9]+' | head -1)
+          # `|| true`: under `set -euo pipefail` a no-match grep exits 1,
+          # which would abort the step here and the malformed-marker
+          # branch below would never run. An empty $blocking is exactly
+          # the case that branch handles.
+          blocking=$(printf '%s' "$latest" | grep -oP '(?<![a-zA-Z])blocking=\K[0-9]+' | head -1 || true)
           if [[ -z "$blocking" ]]; then
             echo "verdict=malformed-marker" >> "$GITHUB_OUTPUT"
             echo "marker=$latest" >> "$GITHUB_OUTPUT"
