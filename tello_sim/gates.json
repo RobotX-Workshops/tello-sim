@@ -1,0 +1,40 @@
+[
+  {
+    "color": "yellow",
+    "x": -35.55,
+    "z": 45.0,
+    "diameter_cm": 23.3,
+    "clearance_cm": 43.2,
+    "yaw": -136.1
+  },
+  {
+    "color": "green",
+    "x": 8.22,
+    "z": 100.0,
+    "diameter_cm": 45,
+    "clearance_cm": 66.8,
+    "yaw": -58.7
+  },
+  {
+    "color": "red",
+    "x": -46.65,
+    "z": 124.08,
+    "diameter_cm": 30.5,
+    "clearance_cm": 46.6,
+    "yaw": 16.1
+  },
+  {
+    "color": "blue",
+    "x": -25.8,
+    "z": 250.54,
+    "diameter_cm": 47.3,
+    "clearance_cm": 120.8
+  },
+  {
+    "color": "violet",
+    "x": -15,
+    "z": 340,
+    "diameter_cm": 35,
+    "clearance_cm": 45
+  }
+]
