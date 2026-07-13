@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 from PIL import Image
 from OpenGL.GL import glReadPixels, GL_RGBA, GL_UNSIGNED_BYTE
 import numpy as np
@@ -33,7 +34,11 @@ from ursina import (
     WindowPanel,
 )
 from time import sleep, time
+import time as time_module  # ursina publishes the per-frame delta as time.dt on the module
+import traceback
 from cv2.typing import MatLike
+
+logger = logging.getLogger(__name__)
 
 
 # --- Gate configuration --------------------------------------------------------
@@ -44,6 +49,9 @@ from cv2.typing import MatLike
 GATE_DIAMETER_SCALE = 0.36     # cm -> world units for gate diameter (fits the drone)
 UNITS_PER_CM = 0.1             # cm -> world units for gate height/clearance
 GROUND_Y = 3.0                 # drone floor clamp; used as the ground reference
+
+RC_YAW_RATE_DEG_S = 1.0             # deg/s per rc stick unit; full stick (100) ≈ 100 deg/s
+BATTERY_FLIGHT_DURATION_S = 3600.0  # full battery lasts this much accumulated flight time
 
 MIN_GATE_DIAMETER_CM = 23.0
 MAX_GATE_DIAMETER_CM = 50.0
@@ -104,6 +112,10 @@ class UrsinaAdapter():
         self.last_keys = {}
         self.start_time = time()
         self.last_time = self.start_time
+        self.last_tick_time = time()
+        self.total_flight_seconds = 0.0
+        self.takeoff_time = None
+        self.rc_control = None
         self.stream_active = False
         self.is_connected = False
         self.recording_folder = "tello_recording"
@@ -629,7 +641,10 @@ class UrsinaAdapter():
         """Simulate connecting to the drone."""
         if not self.is_connected:
             print("Tello Simulator: Connecting...")
-            sleep(1)  
+            sleep(1)
+            self.total_flight_seconds = 0.0
+            self.takeoff_time = None
+            self.battery_level = 100
             self.is_connected = True
             print("Tello Simulator: Connection successful! Press 'Shift' to take off.")
 
@@ -773,17 +788,28 @@ class UrsinaAdapter():
             1  # Alpha channel
         )
         
+    def _current_flight_seconds(self) -> float:
+        """Accumulated airborne time across takeoffs, including the current flight."""
+        seconds = self.total_flight_seconds
+        if self.is_flying and self.takeoff_time is not None:
+            seconds += time() - self.takeoff_time
+        return seconds
+
+    def _stop_flight_clock(self) -> None:
+        if self.takeoff_time is not None:
+            self.total_flight_seconds += time() - self.takeoff_time
+            self.takeoff_time = None
+
     def get_battery(self) -> float:
-        elapsed_time = time() - self.start_time
-        self.battery_level = max(100 - int((elapsed_time / 3600) * 100), 0)  # Reduce battery over 60 min
-        return self.battery_level  
-    
-    
+        # Battery drains with flight time only, not wall-clock app uptime.
+        drained = int(self._current_flight_seconds() / BATTERY_FLIGHT_DURATION_S * 100)
+        self.battery_level = max(100 - drained, 0)
+        return self.battery_level
+
+
     def get_flight_time(self) -> int:
         """Return total flight time in seconds."""
-        if self.is_flying:
-            return int(time() - self.start_time)  
-        return 0  # Not flying
+        return int(self._current_flight_seconds())
     
     def get_pitch(self) -> int:
         return int(self.drone.rotation_x) 
@@ -908,7 +934,8 @@ class UrsinaAdapter():
             print("\n========== Battery Depleted! ==========\n")
 
             # **Trigger Emergency Landing**
-            self.emergency()
+            if self.is_flying:
+                self.emergency()
     
     def update_movement(self) -> None:
         self.velocity += self.acceleration
@@ -1048,15 +1075,30 @@ class UrsinaAdapter():
         self.drone.rotation_z = lerp(self.drone.rotation_z, self.roll_angle, self.tilt_smoothness)
         
     def send_rc_control(self, left_right_velocity_ms: float, forward_backward_velocity_ms: float, up_down_velocity_ms: float, yaw_velocity_ms: float):
-        
-        self.velocity = Vec3(
-            -left_right_velocity_ms / 100,        # LEFT/RIGHT mapped to X
-            up_down_velocity_ms / 100,            # UP/DOWN mapped to Y
-            forward_backward_velocity_ms / 100   # FORWARD/BACKWARD mapped to Z
-        )
+        # Store the stick values atomically; tick() applies them in the body
+        # frame on the main thread each frame (see _apply_rc_control).
+        self.rc_control = (left_right_velocity_ms, forward_backward_velocity_ms,
+                           up_down_velocity_ms, yaw_velocity_ms)
+        logger.debug("[RC Control] Velocities set -> LR: %s, FB: %s, UD: %s, Yaw: %s",
+                     left_right_velocity_ms, forward_backward_velocity_ms,
+                     up_down_velocity_ms, yaw_velocity_ms)
 
-        self.drone.rotation_y += -yaw_velocity_ms * 0.05  # Smooth yaw rotation
-        print(f"[RC Control] Velocities set -> LR: {left_right_velocity_ms}, FB: {forward_backward_velocity_ms}, UD: {up_down_velocity_ms}, Yaw: {yaw_velocity_ms}")
+    def _apply_rc_control(self) -> None:
+        if self.rc_control is None:
+            return
+        lr, fb, ud, yaw = self.rc_control
+        if yaw:
+            # Positive stick = clockwise = +rotation_y, same convention as rotate_cw.
+            self.drone.rotation_y += yaw * RC_YAW_RATE_DEG_S * time_module.dt
+        if lr or fb or ud:
+            # Body-frame translation; flatten like move() so tilt doesn't bleed
+            # into the horizontal axes. Positive lr = right, positive fb = forward.
+            right = Vec3(self.drone.right.x, 0, self.drone.right.z)
+            forward = Vec3(self.drone.forward.x, 0, self.drone.forward.z)
+            if right.length() > 0 and forward.length() > 0:
+                self.velocity = (right.normalized() * (lr / 100)
+                                 + forward.normalized() * (fb / 100)
+                                 + Vec3(0, ud / 100, 0))
 
     @staticmethod
     def map_coords(x: float, y: float, z: float) -> Vec3:
@@ -1124,9 +1166,13 @@ class UrsinaAdapter():
                 
     def takeoff(self) -> None:
         if not self.is_flying:
+            if self.get_battery() <= 0:
+                print("Tello Simulator: Cannot take off - battery depleted!")
+                return
             print("Tello Simulator: Taking off...")
-            
+
             self.is_flying = True
+            self.takeoff_time = time()
             target_altitude = self.drone.y + 2  # Target altitude
             self.drone.animate('y', target_altitude, duration=1, curve=curve.in_out_quad)
 
@@ -1148,6 +1194,7 @@ class UrsinaAdapter():
             current_altitude = self.drone.y
             self.drone.animate('y', 2.6, duration=current_altitude * 0.5, curve=curve.in_out_quad)
             self.is_flying = False
+            self._stop_flight_clock()
             print("Landing initiated")
         else:
             print("Already on ground")
@@ -1163,9 +1210,10 @@ class UrsinaAdapter():
             self.drone.animate('y', 2.6, duration=1.5, curve=curve.linear)
 
             self.is_flying = False
+            self._stop_flight_clock()
             print("Emergency landing initiated")
-        
-        print("Drone is already on the ground")
+        else:
+            print("Drone is already on the ground")
         
     def get_latest_frame(self) -> MatLike:
         """Return the latest frame directly"""
@@ -1177,16 +1225,16 @@ class UrsinaAdapter():
     def capture_frame(self):
         """Capture the latest FPV frame. Optionally save to disk if save_frames_to_disk is True."""
         if not self.stream_active:
-            print("[Capture] Stream not active. Cannot capture frame.")
-            return  
+            logger.debug("[Capture] Stream not active. Cannot capture frame.")
+            return
 
         if self.latest_frame is None:
-            print("[Capture] No latest frame available.")
+            logger.debug("[Capture] No latest frame available.")
             return
 
         # Always increment frame count for tracking
         self.frame_count += 1
-        print(f"[Capture] Frame {self.frame_count} captured (memory only)")
+        logger.debug("[Capture] Frame %d captured (memory only)", self.frame_count)
         
     def set_speed(self, x: int):
         """Set drone speed by adjusting acceleration force.
@@ -1211,8 +1259,17 @@ class UrsinaAdapter():
     
     def tick(self) -> None:
         """
-        Update the simulator state
+        Update the simulator state. Never lets an exception escape into the
+        engine's task loop — one bad frame must not take down the whole sim.
         """
+        self.last_tick_time = time()
+        try:
+            self._tick_impl()
+        except Exception:
+            print("[Sim] Exception in update tick:")
+            traceback.print_exc()
+
+    def _tick_impl(self) -> None:
         # Spin the propeller blur discs while flying; hide them when stationary
         # (the model's own molded blades show instead). Runs before the
         # is_connected check so the discs still hide after end()/disconnect.
@@ -1291,6 +1348,7 @@ class UrsinaAdapter():
             self.pitch_angle = 0  # Reset tilt when no move is in progress
             self.roll_angle = 0
 
+        self._apply_rc_control()
         self.update_movement()
         self.update_pitch_roll()
 
