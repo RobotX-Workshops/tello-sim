@@ -1,0 +1,496 @@
+name: Bot Blocking Gate
+
+# Required status check: fails when any bot adversarial review on the
+# PR's CURRENT head SHA reports a non-zero `blocking=` count without a
+# later review on the SAME head SHA superseding it with `blocking=0`.
+#
+# The motivating defect: bot reviews are submitted as `COMMENTED`, not
+# `REQUEST_CHANGES`, so the "Blocking" findings the reviewer prompt in
+# `claude-code-review.yml` is told to emit have no enforcement at the
+# GitHub layer — the PR remains mergeable. Branch protection can't
+# require a bot account as a reviewer either. This workflow is a status
+# check that branch protection CAN require, and it parses the bots'
+# existing output format.
+#
+# Ported from RobotX-Workshops/tron-roboracer; issue references below
+# (tron-roboracer#NNN) point at the design discussions in that repo.
+#
+# Architecture (see tron-roboracer#172 for the full re-arch rationale):
+#
+#   1. Triggers
+#      - `pull_request` for the initial fail-closed verdict on every
+#        push (synchronize) and PR open/reopen.
+#      - `workflow_run` on Claude Code Review completion. This fires
+#        regardless of comment authorship (issue_comment is suppressed
+#        for GITHUB_TOKEN-authored comments) AND uses the workflow
+#        definition from main, so a hot-fix to this file takes effect
+#        immediately for every subsequent bot-review completion event
+#        without requiring a per-PR push.
+#      - `issue_comment` is intentionally NOT a trigger: it never fires
+#        for the bot's marker comment (authored by GITHUB_TOKEN), and
+#        even when it did fire (e.g. a human edit) the run was filed
+#        under main's SHA so the PR's rollup never saw the result.
+#
+#   2. Verdict reporting
+#      The job does NOT rely on the workflow's own auto-generated
+#      check-run. Instead it explicitly POSTs a `Bot Blocking Gate`
+#      check-run keyed to the PR head SHA via
+#      `POST /repos/{owner}/{repo}/check-runs`. GitHub's rollup tracks
+#      the latest check-run by `(name, head_sha)`, so this is the
+#      semantic branch protection actually grades against — independent
+#      of which event triggered the run or which SHA GitHub auto-filed
+#      the run under.
+#
+#      Branch protection must require the check named `Bot Blocking
+#      Gate` (the POST'd check-run name), not `gate` (the job name).
+#
+#   3. Self-status
+#      The job itself always exits 0 unless an infrastructure error
+#      prevents it from POSTing a verdict. The verdict lives in the
+#      POST'd check-run, not the job's exit code. This prevents stale
+#      workflow-status check-runs from sticking on the PR.
+#
+# Bots covered: claude[bot] (this repo's adversarial reviewer).
+
+on:
+  # `pull_request_target` (not `pull_request`) so the workflow runs in
+  # the base repo's context with a writable GITHUB_TOKEN even for fork
+  # PRs. The gate POSTs a check-run, which requires `checks: write` —
+  # under `pull_request` from a fork the token is read-only and the
+  # POST would 403, leaving fork PRs with no verdict at all. This
+  # workflow never checks out PR code or executes anything from the
+  # PR's source tree (it only calls `gh api`), so the usual
+  # `pull_request_target` footgun (running untrusted code with
+  # elevated permissions) does not apply.
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  # Claude Code Review posts its marker comment via the workflow's
+  # GITHUB_TOKEN, and events authored by GITHUB_TOKEN do not trigger
+  # downstream workflows. `workflow_run` fires regardless of the
+  # comment's authorship, so the gate reliably re-evaluates once the
+  # review job finishes. It also runs from the default branch's
+  # workflow definition, so a fix to this file applies to every
+  # subsequent re-fire without per-PR pushes (see tron-roboracer#172).
+  workflow_run:
+    workflows: ["Claude Code Review"]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+  actions: read
+  # Required to POST the verdict check-run to the PR's head SHA via
+  # POST /repos/{owner}/{repo}/check-runs. Without this scope the
+  # explicit check-run write would silently 403 and the PR rollup would
+  # never see the verdict — exactly the defect tron-roboracer#172 set
+  # out to fix.
+  checks: write
+
+# Serialize evaluations for the same PR: an earlier `no-marker`/awaiting
+# run (e.g. from `pull_request_target`) could otherwise POST its
+# fail-closed verdict AFTER the completion-triggered success run and
+# overwrite the passing check-run. Newer events always carry the newer
+# state, so cancelling the older in-flight evaluation is safe. For
+# workflow_run events on fork PRs `pull_requests` can be empty, so fall
+# back to the reviewed head SHA as the group key.
+concurrency:
+  group: bot-blocking-gate-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.head_sha }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Resolve PR head SHA + fork status
+        id: head
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # `pull_request` carries the PR head SHA on the event payload;
+          # `workflow_run` carries `workflow_run.pull_requests[]` for
+          # same-repo PRs and we fall back to a SHA → PR lookup for
+          # forks. If neither yields an open PR the source run wasn't
+          # PR-associated (manual dispatch, branch push, etc.) — skip
+          # cleanly rather than failing closed.
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            pr_num=$(jq -r '.workflow_run.pull_requests[0].number // empty' \
+              "$GITHUB_EVENT_PATH")
+            review_run_id=$(jq -r '.workflow_run.id' "$GITHUB_EVENT_PATH")
+            review_head_sha=$(jq -r '.workflow_run.head_sha' "$GITHUB_EVENT_PATH")
+            if [[ -z "$pr_num" ]]; then
+              pr_num=$(gh api \
+                "repos/${{ github.repository }}/commits/${review_head_sha}/pulls" \
+                --jq '[.[] | select(.state == "open")][0].number // empty')
+            fi
+            if [[ -z "$pr_num" ]]; then
+              echo "::notice::workflow_run not associated with an open PR; nothing to gate."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "review_run_id=$review_run_id" >> "$GITHUB_OUTPUT"
+          else
+            pr_num="${{ github.event.pull_request.number }}"
+            echo "review_run_id=" >> "$GITHUB_OUTPUT"
+          fi
+          gh pr view "$pr_num" --repo "${{ github.repository }}" \
+            --json headRefOid,headRepositoryOwner,isCrossRepository > pr.json
+          head_sha=$(jq -r .headRefOid pr.json)
+          is_fork=$(jq -r .isCrossRepository pr.json)
+          short=$(printf '%s' "$head_sha" | cut -c1-7)
+          # If the PR was force-pushed between the triggering
+          # workflow_run firing (which captured the SHA it reviewed)
+          # and this gate evaluating, the run we captured is for a
+          # stale SHA. Forget its id so the next step does a fresh
+          # head_sha-keyed lookup and grades the current head SHA, not
+          # the one the bot reviewed before the push landed.
+          if [[ -n "${review_head_sha:-}" && "$review_head_sha" != "$head_sha" ]]; then
+            echo "::notice::workflow_run captured ${review_head_sha} but PR head is now ${head_sha}; ignoring stale review_run_id."
+            echo "review_run_id=" >> "$GITHUB_OUTPUT"
+          fi
+          echo "pr=$pr_num" >> "$GITHUB_OUTPUT"
+          echo "sha=$head_sha" >> "$GITHUB_OUTPUT"
+          echo "short=$short" >> "$GITHUB_OUTPUT"
+          echo "is_fork=$is_fork" >> "$GITHUB_OUTPUT"
+          echo "PR #$pr_num head: $head_sha ($short) fork=$is_fork"
+
+      - name: Check whether claude-code-review ran for this SHA
+        id: review_workflow
+        if: steps.head.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ steps.head.outputs.sha }}
+          REVIEW_RUN_ID: ${{ steps.head.outputs.review_run_id }}
+        run: |
+          set -euo pipefail
+          # Distinguishes "bot legitimately skipped" (fork PR with no
+          # CLAUDE_CODE_OAUTH_TOKEN — secrets-gate emits ok=false and
+          # claude-review is skipped at the job level) from "bot should
+          # have run but its comment is missing" (which is a malfunction
+          # the gate must fail on, not silently pass).
+          #
+          # On workflow_run we know the exact triggering run id. On
+          # pull_request we look up the latest run for this head SHA.
+          if [[ -n "$REVIEW_RUN_ID" ]]; then
+            run_id="$REVIEW_RUN_ID"
+          else
+            # GitHub returns workflow runs newest-first; we want the
+            # latest (rerun or most recent push) so we sort by
+            # `created_at` descending and take the first id rather than
+            # relying on response order. `last` here would pick the
+            # OLDEST run for this SHA, which on a rerun reads stale
+            # status/conclusion and can misclassify the skip /
+            # in_progress cases.
+            # `--slurp` collects all pages into one array before `--jq`
+            # runs — without it `--jq` is applied per page and a SHA with
+            # more than one page of runs would emit one id per page
+            # (newline-separated), corrupting $run_id.
+            run_id=$(gh api --paginate --slurp \
+              "repos/${{ github.repository }}/actions/workflows/claude-code-review.yml/runs?head_sha=${SHA}&per_page=10" \
+              --jq '[.[] | .workflow_runs[]] | sort_by(.created_at) | reverse | .[0].id // empty')
+          fi
+
+          if [[ -z "$run_id" ]]; then
+            status="none"
+            conclusion="none"
+            review_job_conclusion="none"
+          else
+            run_json=$(gh api "repos/${{ github.repository }}/actions/runs/${run_id}")
+            status=$(jq -r '.status // "none"' <<< "$run_json")
+            conclusion=$(jq -r '.conclusion // "none"' <<< "$run_json")
+            # tron-roboracer#177: the workflow-level conclusion is
+            # `success` even when secrets-gate suppresses claude-review
+            # (the gate job itself succeeds and just emits ok=false). To
+            # detect the legitimate-skip case we must inspect the
+            # `claude-review` JOB's conclusion, not the workflow's.
+            # `skipped` here means "secrets-gate said no" (fork PR /
+            # missing secret).
+            # `--slurp` for the same reason as the run-id lookup above:
+            # per-page `--jq` would emit one value per page (e.g. "none"
+            # from a page without the claude-review job).
+            review_job_conclusion=$(gh api --paginate --slurp \
+              "repos/${{ github.repository }}/actions/runs/${run_id}/jobs?per_page=100" \
+              --jq '[.[] | .jobs[] | select(.name == "claude-review")][0].conclusion // "none"')
+          fi
+          echo "Claude Code Review run on $SHA: status=$status workflow_conclusion=$conclusion claude_review_job_conclusion=$review_job_conclusion"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "conclusion=$conclusion" >> "$GITHUB_OUTPUT"
+          echo "review_job_conclusion=$review_job_conclusion" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch latest bot adversarial review on head SHA
+        id: scan
+        if: steps.head.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.head.outputs.pr }}
+          SHORT: ${{ steps.head.outputs.short }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Adversarial reviews are posted as issue comments (`gh pr comment`
+          # under the hood). Each carries the marker:
+          #   <!-- bot-review-marker: claude blocking=N nonblocking=N suspect=N sha=<short> -->
+          # Pull all issue comments authored by claude[bot], filter to the
+          # ones whose marker matches the current head SHA short, then keep
+          # the LATEST one — bots re-review on force-push, and the most
+          # recent verdict for this SHA is the one that counts.
+          # No `|| true` here: a `gh api` failure (rate-limit, auth, outage)
+          # propagates and fails the step, which fails the gate. Silently
+          # treating an API error as "no markers found" would be an
+          # enforcement bypass.
+          gh api --paginate \
+            "repos/${REPO}/issues/${PR}/comments?per_page=100" \
+            --jq '[.[] | select(.user.login == "claude[bot]"
+                                and (.body | startswith("<!-- bot-review-marker:")))]
+                  | sort_by(.created_at)
+                  | .[]
+                  | {created_at, body: (.body | split("\n")[0])}' \
+            > all-markers.json
+
+          if [[ ! -s all-markers.json ]]; then
+            echo "verdict=no-marker" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Latest marker on this exact head SHA.
+          # Match sha= followed by the 7-char prefix and then optionally
+          # more lowercase hex chars (up to 40 total for a full SHA), then
+          # a non-hex char or end-of-string. This accepts 7–40 char hex
+          # prefixes so a single-char drift in the bot's output (e.g. 8
+          # chars instead of 7) does not produce a spurious FAILURE verdict.
+          # See tron-roboracer#315.
+          latest=$(jq -rs --arg short "$SHORT" \
+            '[.[] | select(.body | test("sha=" + $short + "[0-9a-f]*([^0-9a-f]|$)"))] | last // empty | .body' \
+            all-markers.json)
+
+          if [[ -z "$latest" ]]; then
+            echo "verdict=stale-marker" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Latest marker on $SHORT: $latest"
+          # Anchor on a non-letter before `blocking=` so the regex doesn't
+          # match the `nonblocking=` substring elsewhere in the marker.
+          # Confirmed bug upstream: greedy `.*blocking=([0-9]+)` returned
+          # `1` from `nonblocking=1` instead of `0` from `blocking=0`, and
+          # the gate red-failed PRs that should have passed.
+          # `|| true`: under `set -euo pipefail` a no-match grep exits 1,
+          # which would abort the step here and the malformed-marker
+          # branch below would never run. An empty $blocking is exactly
+          # the case that branch handles.
+          blocking=$(printf '%s' "$latest" | grep -oP '(?<![a-zA-Z])blocking=\K[0-9]+' | head -1 || true)
+          if [[ -z "$blocking" ]]; then
+            echo "verdict=malformed-marker" >> "$GITHUB_OUTPUT"
+            echo "marker=$latest" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "verdict=parsed" >> "$GITHUB_OUTPUT"
+          echo "blocking=$blocking" >> "$GITHUB_OUTPUT"
+          echo "marker=$latest" >> "$GITHUB_OUTPUT"
+
+      - name: Decide verdict
+        id: decide
+        if: steps.head.outputs.skip != 'true'
+        env:
+          VERDICT: ${{ steps.scan.outputs.verdict }}
+          BLOCKING: ${{ steps.scan.outputs.blocking }}
+          MARKER: ${{ steps.scan.outputs.marker }}
+          SHORT: ${{ steps.head.outputs.short }}
+          IS_FORK: ${{ steps.head.outputs.is_fork }}
+          REVIEW_STATUS: ${{ steps.review_workflow.outputs.status }}
+          REVIEW_CONCLUSION: ${{ steps.review_workflow.outputs.conclusion }}
+          REVIEW_JOB_CONCLUSION: ${{ steps.review_workflow.outputs.review_job_conclusion }}
+        run: |
+          set -euo pipefail
+          # Decision matrix → emit (conclusion, title, summary) consumed
+          # by the "Post check-run" step below. Every branch here emits
+          # `success` or `failure`; `neutral` is part of the Checks API
+          # enum but we intentionally don't use it (a transient bot
+          # state is still a closed gate until the rerun lands). We
+          # never use the workflow's own exit code to gate; the POST'd
+          # check-run carries the verdict.
+          #
+          #   parsed + blocking=0   → success
+          #   parsed + blocking>0   → failure
+          #   malformed-marker      → failure (bot misfire)
+          #   no-marker / stale-marker:
+          #     - fork PR + claude-review JOB conclusion == skipped →
+          #       success by absence (fork PR / no secret —
+          #       tron-roboracer#177).
+          #       IMPORTANT: gate this on IS_FORK==true. A same-repo PR
+          #       whose claude-review job was skipped for any other reason
+          #       (missing/expired CLAUDE_CODE_OAUTH_TOKEN, renamed secret,
+          #       accidental if: regression) would otherwise silently pass
+          #       the gate — disabling the enforcement this workflow exists
+          #       for. For same-repo PRs the secret is expected to be
+          #       present, so a skipped claude-review job is a malfunction
+          #       and must fail closed.
+          #     - workflow status == in_progress →
+          #       failure (transient; ~10 min escalation; self-heals via workflow_run)
+          #     - workflow status in {queued, waiting} →
+          #       failure (transient; no upper bound — runner saturation
+          #       for `queued`, environment approval gate for `waiting`;
+          #       ~30 min escalation heuristic; self-heals via workflow_run)
+          #     - any other shape → failure closed
+          conclusion="failure"
+          title="Unknown verdict"
+          summary=""
+          case "$VERDICT" in
+            parsed)
+              if (( BLOCKING > 0 )); then
+                conclusion="failure"
+                title="${BLOCKING} blocking finding(s) on ${SHORT}"
+                summary="Bot adversarial review on \`${SHORT}\` reports **${BLOCKING}** blocking finding(s). Address them and push, or have the bot re-review with \`blocking=0\`.\n\nMarker: \`${MARKER}\`"
+              else
+                conclusion="success"
+                title="No blocking findings on ${SHORT}"
+                summary="Bot adversarial review on \`${SHORT}\` reports 0 blocking findings; gate passes.\n\nMarker: \`${MARKER}\`"
+              fi
+              ;;
+            malformed-marker)
+              conclusion="failure"
+              title="Malformed bot review marker on ${SHORT}"
+              summary="Bot review marker present but \`blocking=\` unparseable. Marker: \`${MARKER}\`"
+              ;;
+            no-marker|stale-marker)
+              if [[ "$IS_FORK" == "true" && "$REVIEW_JOB_CONCLUSION" == "skipped" ]]; then
+                conclusion="success"
+                title="Claude Code Review skipped on ${SHORT} (fork PR)"
+                summary="Fork PR: the \`claude-review\` job was skipped on \`${SHORT}\` (secrets-gate emitted \`ok=false\` — expected for fork PRs without \`CLAUDE_CODE_OAUTH_TOKEN\`). Gate passes by absence."
+              elif [[ "$IS_FORK" == "true" && "$REVIEW_STATUS" == "none" ]]; then
+                conclusion="success"
+                title="Fork PR, no Claude Code Review run on ${SHORT}"
+                summary="Fork PR and Claude Code Review didn't run on \`${SHORT}\`; gate passes by absence."
+              elif [[ "$REVIEW_STATUS" == "in_progress" ]]; then
+                # Word this as transient + self-healing, not a hard fail
+                # (tron-roboracer#180).
+                conclusion="failure"
+                title="Awaiting Claude Code Review on ${SHORT}"
+                summary="Bot Blocking Gate is failing closed because Claude Code Review is \`${REVIEW_STATUS}\` on \`${SHORT}\`. This is expected if you just pushed — the gate will re-evaluate automatically when the review workflow completes (typically 2-5 min). No action required unless this persists past ~10 min, in which case check the Claude Code Review workflow status."
+              elif [[ "$REVIEW_STATUS" == "queued" || "$REVIEW_STATUS" == "waiting" ]]; then
+                # queued/waiting have no upper bound — runner saturation
+                # can exceed any fixed estimate (tron-roboracer#180/#193).
+                conclusion="failure"
+                title="Awaiting Claude Code Review on ${SHORT}"
+                if [[ "$REVIEW_STATUS" == "queued" ]]; then
+                  blocker_note="the runner has not started yet — this is expected if GitHub Actions runners are saturated"
+                else
+                  # waiting: environment-protection approval gate
+                  # (unreachable today — claude-code-review.yml has no
+                  # `environment:` key; split this branch if one is added)
+                  blocker_note="the workflow run is awaiting environment-protection approval"
+                fi
+                summary="Bot Blocking Gate is failing closed because Claude Code Review is \`${REVIEW_STATUS}\` on \`${SHORT}\` — ${blocker_note}. Wait times have no upper bound. No action required unless the run has been \`${REVIEW_STATUS}\` for ~30 min with no progress, in which case check the Claude Code Review workflow status."
+              else
+                conclusion="failure"
+                title="No bot review marker on ${SHORT}"
+                summary="No marker for \`${SHORT}\` (Claude Code Review status=\`${REVIEW_STATUS}\` workflow_conclusion=\`${REVIEW_CONCLUSION}\` claude_review_job=\`${REVIEW_JOB_CONCLUSION}\`). Possible bot malfunction, deleted comment, or SHA mismatch — gate fails closed."
+              fi
+              ;;
+            *)
+              conclusion="failure"
+              title="Unexpected verdict on ${SHORT}"
+              summary="Unexpected scan verdict: \`${VERDICT}\`"
+              ;;
+          esac
+          echo "conclusion=$conclusion" >> "$GITHUB_OUTPUT"
+          echo "title=$title" >> "$GITHUB_OUTPUT"
+          # Persist the summary as a file rather than a step output —
+          # outputs are truncated and don't survive embedded newlines.
+          printf '%b' "$summary" > /tmp/check-run-summary.txt
+          echo "Verdict: $conclusion — $title"
+
+      - name: Deduplicate — skip POST if verdict unchanged
+        id: dedupe
+        if: steps.head.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ steps.head.outputs.sha }}
+          CONCLUSION: ${{ steps.decide.outputs.conclusion }}
+          CHECK_TITLE: ${{ steps.decide.outputs.title }}
+        run: |
+          set -euo pipefail
+          # tron-roboracer#200: Compare the new verdict against the
+          # most-recent "Bot Blocking Gate" check-run already on this
+          # SHA. If both (conclusion, title) are identical we can skip
+          # the POST — branch protection always reads the latest, so a
+          # no-op POST would only add Checks-UI clutter without changing
+          # anything.
+          #
+          # We intentionally check BOTH conclusion AND title so that a
+          # transition from "1 blocking finding(s)" → "2 blocking
+          # finding(s)" (same conclusion=failure but different count in
+          # title) still triggers a fresh POST.
+          #
+          # On any API error we fall through to the POST to avoid false
+          # short-circuits when the check-runs list is temporarily
+          # unavailable (fail-open for deduplication, fail-closed for
+          # enforcement — the POST step already handles its own errors).
+          skip_post="false"
+          # The check-runs endpoint defaults to `filter=latest` which
+          # returns one row per (app_id, name) — the newest. We still
+          # request `per_page=100` and explicitly `sort_by(.id) | last`
+          # so that a cycling verdict (failure → success → failure) on
+          # the same SHA can never compare against an older same-verdict
+          # row and skip a POST that flips the visible conclusion.
+          # `// empty` is intentionally placed BEFORE the `{...}`
+          # constructor — if `.check_runs` is empty, `last` yields `null`
+          # and we short-circuit to empty rather than emitting
+          # `{"conclusion":null,"title":null}` (which is truthy and would
+          # confuse the downstream `[[ -n "$prev" ]]` guard).
+          prev=$(gh api \
+            "repos/${REPO}/commits/${HEAD_SHA}/check-runs?check_name=Bot+Blocking+Gate&per_page=100" \
+            --jq '[.check_runs[]] | sort_by(.id) | last // empty | {conclusion, title: .output.title}' \
+            2>/dev/null || true)
+          if [[ -n "$prev" ]]; then
+            prev_conclusion=$(jq -r '.conclusion // empty' <<< "$prev")
+            prev_title=$(jq -r '.title // empty' <<< "$prev")
+            if [[ "$prev_conclusion" == "$CONCLUSION" && "$prev_title" == "$CHECK_TITLE" ]]; then
+              echo "::notice::Verdict unchanged (conclusion=${CONCLUSION}, title=${CHECK_TITLE}) — skipping redundant check-run POST."
+              skip_post="true"
+            fi
+          fi
+          echo "skip_post=${skip_post}" >> "$GITHUB_OUTPUT"
+
+      - name: Post check-run to PR head SHA
+        if: steps.head.outputs.skip != 'true' && steps.dedupe.outputs.skip_post != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ steps.head.outputs.sha }}
+          CONCLUSION: ${{ steps.decide.outputs.conclusion }}
+          CHECK_TITLE: ${{ steps.decide.outputs.title }}
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # POST the verdict as a check-run keyed to the PR head SHA
+          # (tron-roboracer#172/#179). This decouples the verdict from
+          # GitHub Actions' event-to-SHA mapping — `workflow_run` events
+          # file the run under main's SHA, but the check-run we POST is
+          # on the PR's head SHA, so branch protection sees it. GitHub's
+          # rollup tracks the latest check-run by (name, head_sha),
+          # which is exactly the semantic we want for "did the latest
+          # evaluation pass on this SHA?".
+          #
+          # Branch protection must require the check named "Bot Blocking
+          # Gate" (this POST), not "gate" (the job-level auto check).
+          summary=$(cat /tmp/check-run-summary.txt)
+          # Always include a link back to the workflow run so a human
+          # reading the PR check can jump to the logs.
+          summary="${summary}"$'\n\n'"[View workflow run](${RUN_URL}) — triggered by \`${EVENT_NAME}\`."
+
+          gh api -X POST "repos/${REPO}/check-runs" \
+            -f name="Bot Blocking Gate" \
+            -f head_sha="${HEAD_SHA}" \
+            -f status="completed" \
+            -f conclusion="${CONCLUSION}" \
+            -f details_url="${RUN_URL}" \
+            -f "output[title]=${CHECK_TITLE}" \
+            -f "output[summary]=${summary}" \
+            > posted-check-run.json
+          echo "Posted check-run id=$(jq -r .id posted-check-run.json) conclusion=${CONCLUSION} to ${HEAD_SHA}"
