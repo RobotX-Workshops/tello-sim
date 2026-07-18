@@ -406,8 +406,11 @@ class UrsinaAdapter():
             try:
                 with open(path) as f:
                     data = json.load(f)
-                if isinstance(data, list) and data:
+                required = {'x', 'z', 'diameter_cm', 'clearance_cm'}
+                if (isinstance(data, list) and data
+                        and all(isinstance(g, dict) and required <= g.keys() for g in data)):
                     return [dict(g) for g in data]
+                print(f"[Gates] {path} is invalid or missing required keys; using defaults")
             except Exception as e:
                 print(f"[Gates] Failed to load {path}: {e}")
         return [dict(g) for g in DEFAULT_GATES]
