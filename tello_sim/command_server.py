@@ -1,4 +1,3 @@
-import os
 import socket
 import errno
 import logging
@@ -19,12 +18,7 @@ class CommandServer:
         self._ursina_adapter = ursina_adapter
         self.latest_frame = None
         self.stream_active = False
-        self.last_altitude = 0
-        self._recording_folder = "output/recordings"
         self.server_socket = None
-
-        if not os.path.exists(self._recording_folder):
-            os.makedirs(self._recording_folder)
 
     def check_port_available(self, port: int = 9999) -> bool:
         """
@@ -54,9 +48,6 @@ class CommandServer:
         if not self.stream_active:
             self.stream_active = True
             self._ursina_adapter.stream_active = True
-            self.frame_count = 0
-            self.saved_frames = []
-            self.last_screenshot_time = time() + 3  # First capture after 3 sec
 
             if self._ursina_adapter:
                 self._ursina_adapter.toggle_camera_view()
@@ -70,7 +61,7 @@ class CommandServer:
             self.stream_active = False
             self._ursina_adapter.stream_active = False
             cv2.destroyAllWindows()
-            print(f"[FPV] Video streaming stopped. Frames captured: {len(self.saved_frames)}")
+            print(f"[FPV] Video streaming stopped. Frames captured: {self._ursina_adapter.frame_count}")
 
             if self._ursina_adapter:
                 self._ursina_adapter.toggle_camera_view()
