@@ -10,7 +10,7 @@ In the repo there is the simulation server along with a client class that can be
 
 ### Option 1: Dev Container (Recommended)
 
-The easiest way to get started is using the provided dev container which includes all dependencies and GUI support:
+The easiest way to get started is using the provided dev container, which sets up GUI/X11/VNC support for you:
 
 1. **Setup the dev container for your platform:**
 
@@ -25,7 +25,14 @@ The easiest way to get started is using the provided dev container which include
    - Open Command Palette (Cmd/Ctrl + Shift + P)
    - Run "Dev Containers: Reopen in Container"
 
-3. **Platform-specific requirements:**
+3. **Install the Python dependencies (macOS/Linux only — the Windows config does this for you automatically via `setup-windows.sh`):**
+
+   ```bash
+   pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -r requirements.txt
+   export PYTHONPATH=$PWD
+   ```
+
+4. **Platform-specific requirements:**
    - **macOS**: Install XQuartz (`brew install --cask xquartz`) and run `xhost +localhost`
    - **Linux**: X11 forwarding should work out of the box
    - **Windows**: Access GUI via VNC at `http://localhost:5901` (password: `vncpass`)
@@ -70,7 +77,7 @@ python tello_sim/run_sim.py
 
 You can try running some of the [examples](./examples) to see how the simulation works. The examples are located in the `examples` folder.
 
-Or use the [client](./tello_sim_client.py) class to interact with the simulation server. The client class is located in the `tello_sim` folder.
+Or use the [client](./tello_sim_client.py) class to interact with the simulation server. `tello_sim_client.py` lives in the repo root; the simulator server code lives in the `tello_sim` folder.
 
 ## Troubleshooting
 
@@ -93,6 +100,10 @@ python3.12 -m venv --copies venv
 source venv/bin/activate
 venv/bin/python -m pip install -r requirements.txt
 ```
+
+### `numpy` install failure inside the dev container
+
+The dev container images (`.devcontainer/Dockerfile`, `.devcontainer/Dockerfile.windows`) are currently pinned to Python 3.9, while `requirements.txt` pins `numpy==2.2.3`, which does not publish wheels for Python 3.9 (2.0.2 is the newest 3.9-compatible release). If `pip install -r requirements.txt` fails inside the dev container with a "no matching distribution" error for `numpy`, this version mismatch is why — use the manual setup with Python 3.12 instead, or downgrade the `numpy` pin, until the container images are updated.
 
 ### Managing python versions
 
