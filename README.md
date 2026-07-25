@@ -91,7 +91,7 @@ Fix: recreate the venv against a Python that exists, using `--copies` so it can'
 rm -rf venv
 python3.12 -m venv --copies venv
 source venv/bin/activate
-pip install -r requirements.txt
+venv/bin/python -m pip install -r requirements.txt
 ```
 
 ### Managing python versions
