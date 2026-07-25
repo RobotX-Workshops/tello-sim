@@ -6,7 +6,6 @@ from OpenGL.GL import glReadPixels, GL_RGBA, GL_UNSIGNED_BYTE
 import numpy as np
 from typing import Literal
 import cv2
-import numpy as np
 from ursina import (
     Ursina,
     window,
@@ -107,9 +106,6 @@ class UrsinaAdapter():
         self.is_flying = False
         self.battery_level = 100
         self.altitude = 0
-        self.speed = 0
-        self.rotation_angle = 0
-        self.last_keys = {}
         self.start_time = time()
         self.last_time = self.start_time
         self.last_tick_time = time()
@@ -118,13 +114,9 @@ class UrsinaAdapter():
         self.rc_control = None
         self.stream_active = False
         self.is_connected = False
-        self.recording_folder = "tello_recording"
         self.frame_count = 0
-        self.saved_frames = []
-        self.screenshot_interval = 3  
         self.latest_frame = None
-        self.last_screenshot_time = None  
-        self.last_altitude = self.altitude  
+        self.last_altitude = self.altitude
         self.bezier_path = []
         self.bezier_duration = 0
         self.bezier_start_time = None
@@ -651,10 +643,6 @@ class UrsinaAdapter():
             self.is_connected = True
             print("Tello Simulator: Connection successful! Press 'Shift' to take off.")
 
-    def get_current_fpv_view(self):
-        """ Capture the current FPV camera view and return it as a texture """
-        return camera.texture  # Get the current screen texture
-
     def update_takeoff_indicator(self):
         """Blinking effect for takeoff status"""
         pulse = (sin(time() * 5) + 1) / 2  
@@ -686,15 +674,10 @@ class UrsinaAdapter():
         invoke(self.reset_rotation, delay=0.62)
     
     def reset_rotation(self):
-        
+
         self.drone.rotation_x = 0
         self.drone.rotation_z = 0
-        
-        
-    def _rotate(self, angle):
-        self.rotation_angle += angle
-        print(f"Tello Simulator: Rotating {angle} degrees")
-    
+
     def create_meters(self):
     
         # Main battery container
@@ -1059,24 +1042,6 @@ class UrsinaAdapter():
             self.drone_camera.position = self.third_person_position
             self.drone_camera.rotation = self.third_person_rotation
     
-    def change_altitude(self, direction: Literal["up", "down"], distance: float=5) -> None:
-        delta = distance / 20
-        if direction == "up":
-            self.drone.y += delta 
-            self.altitude += delta
-        elif direction == "down" and self.drone.y > 3:
-            self.drone.y -= delta
-            self.altitude -= delta
-
-    # TODO: Is this Radians or Degrees? We should put a suffix in the argument name
-    def rotate(self, angle: float) -> None:
-        self._rotate(angle)
-        self.drone.rotation_y = lerp(self.drone.rotation_y, self.drone.rotation_y + angle, 0.2)  
-
-    def update_pitch_roll(self) -> None:
-        self.drone.rotation_x = lerp(self.drone.rotation_x, self.pitch_angle, self.tilt_smoothness)
-        self.drone.rotation_z = lerp(self.drone.rotation_z, self.roll_angle, self.tilt_smoothness)
-        
     def send_rc_control(self, left_right_velocity_ms: float, forward_backward_velocity_ms: float, up_down_velocity_ms: float, yaw_velocity_ms: float):
         # Store the stick values atomically; tick() applies them in the body
         # frame on the main thread each frame (see _apply_rc_control).
@@ -1353,6 +1318,5 @@ class UrsinaAdapter():
 
         self._apply_rc_control()
         self.update_movement()
-        self.update_pitch_roll()
 
     
