@@ -37,10 +37,10 @@ If you prefer to set up the environment manually:
 1. Create the virtual environment by running:
 
    ```bash
-   python3.13 -m venv --copies venv
+   python3.12 -m venv --copies venv
    ```
 
-   `--copies` copies the interpreter into the venv instead of symlinking it. Without it, a Homebrew/pyenv upgrade that removes the Python version you built the venv from leaves the venv silently broken (see Troubleshooting).
+   `--copies` copies the interpreter into the venv instead of symlinking it. Without it, a Homebrew/pyenv upgrade that removes the Python version you built the venv from leaves the venv silently broken (see [Troubleshooting](#troubleshooting)).
 
 2. Activate the virtual environment by running:
 
@@ -89,7 +89,7 @@ Fix: recreate the venv against a Python that exists, using `--copies` so it can'
 
 ```bash
 rm -rf venv
-python3.13 -m venv --copies venv
+python3.12 -m venv --copies venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
