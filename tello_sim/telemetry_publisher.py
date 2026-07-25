@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import logging
 import socket
@@ -18,7 +20,9 @@ def build_state(adapter) -> dict:
 
     Position is in metres in the simulator's world frame (1 world unit =
     0.1 m, the same scale get_height/get_speed_* already use); y is height
-    above the ground, matching get_height. Angles are degrees.
+    above the ground, matching get_height: the drone entity rests at
+    y = 2.6 world units when landed, so 0.3 m is subtracted to make ground
+    level read ~0. Angles are degrees.
     """
     raw_yaw = adapter.drone.rotation_y
     return {

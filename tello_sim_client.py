@@ -235,6 +235,9 @@ class TelloSimClient:
                     callback(json.loads(data.decode()))
                 except json.JSONDecodeError:
                     continue
+                except Exception:
+                    # A failing callback must not kill the stream.
+                    logging.exception("[Wrapper] Telemetry callback raised")
 
         self._telemetry_thread = threading.Thread(target=_reader, daemon=True)
         self._telemetry_thread.start()
