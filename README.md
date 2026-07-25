@@ -79,6 +79,33 @@ You can try running some of the [examples](./examples) to see how the simulation
 
 Or use the [client](./tello_sim_client.py) class to interact with the simulation server. `tello_sim_client.py` lives in the repo root; the simulator server code lives in the `tello_sim` folder.
 
+## Position & telemetry API
+
+The simulator exposes the drone's position and state two ways — poll it on
+demand, or subscribe to a push stream:
+
+- **Poll (TCP port 9999):** the commands `get_position` and `get_state` return
+  JSON. Via the client:
+
+  ```python
+  tello.get_position()  # {'x': -1.54, 'y': 0.2, 'z': 0.5, 'yaw': 0.0}
+  tello.get_state()     # position + pitch/roll/speeds/battery/flying/time
+  ```
+
+- **Subscribe (UDP port 9998):** send the datagram `subscribe` and the
+  simulator pushes the same JSON state at ~10 Hz until you send `unsubscribe`
+  (or stop resubscribing for 10 s). Via the client:
+
+  ```python
+  tello.subscribe_state(lambda state: print(state["x"], state["z"]))
+  ...
+  tello.unsubscribe_state()
+  ```
+
+`x`/`z` are metres in the simulator's world frame, `y` is height above the
+ground in metres (matching `get_height`), and `yaw` is degrees in [-180, 180].
+See [examples/15_position_telemetry.py](./examples/15_position_telemetry.py).
+
 ## Troubleshooting
 
 ### `ModuleNotFoundError: No module named 'ursina'` even with the venv activated

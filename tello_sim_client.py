@@ -1,8 +1,10 @@
 from dataclasses import dataclass
+import json
 import logging
 import subprocess
 import platform
 import sys
+import threading
 import time
 import socket
 import cv2
@@ -175,7 +177,81 @@ class TelloSimClient:
 
     def get_current_state(self):
         return self._request_data('get_current_state')
-  
+
+    def get_position(self):
+        """Poll the drone's position: {'x': m, 'y': m, 'z': m, 'yaw': deg}.
+
+        x/z are metres in the simulator's world frame, y is height above the
+        ground (same value as get_height).
+        """
+        data = self._request_data('get_position')
+        try:
+            return json.loads(data)
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+    def get_state(self):
+        """Poll the full telemetry snapshot (position, attitude, speeds,
+        battery, flying flag) as a dict, or None if unavailable."""
+        data = self._request_data('get_state')
+        try:
+            return json.loads(data)
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+    def subscribe_state(self, callback, telemetry_port=9998):
+        """Subscribe to the simulator's UDP telemetry stream (~10 Hz).
+
+        `callback` is invoked with a state dict for every update, from a
+        background thread, until unsubscribe_state() is called. The
+        subscription is kept alive automatically.
+        """
+        if getattr(self, '_telemetry_thread', None):
+            print("[Wrapper] Already subscribed to telemetry.")
+            return
+        self._telemetry_running = True
+        self._telemetry_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._telemetry_socket.settimeout(1.0)
+        self._telemetry_addr = (self.host, telemetry_port)
+
+        def _reader():
+            last_keepalive = 0.0
+            while self._telemetry_running:
+                now = time.time()
+                # Refresh the subscription well inside the server's 10 s TTL.
+                if now - last_keepalive > 3.0:
+                    try:
+                        self._telemetry_socket.sendto(b'subscribe', self._telemetry_addr)
+                        last_keepalive = now
+                    except OSError:
+                        pass
+                try:
+                    data, _ = self._telemetry_socket.recvfrom(4096)
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+                try:
+                    callback(json.loads(data.decode()))
+                except json.JSONDecodeError:
+                    continue
+
+        self._telemetry_thread = threading.Thread(target=_reader, daemon=True)
+        self._telemetry_thread.start()
+
+    def unsubscribe_state(self):
+        """Stop the UDP telemetry subscription started by subscribe_state()."""
+        if not getattr(self, '_telemetry_thread', None):
+            return
+        self._telemetry_running = False
+        try:
+            self._telemetry_socket.sendto(b'unsubscribe', self._telemetry_addr)
+        except OSError:
+            pass
+        self._telemetry_thread.join(timeout=2.0)
+        self._telemetry_socket.close()
+        self._telemetry_thread = None
+
     def connect(self):
         self._send_command('connect')
 
