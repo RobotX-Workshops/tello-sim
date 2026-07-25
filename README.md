@@ -28,7 +28,7 @@ The easiest way to get started is using the provided dev container, which sets u
 3. **Install the Python dependencies (macOS/Linux only — the Windows config does this for you automatically via `setup-windows.sh`):**
 
    ```bash
-   pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -r requirements.txt
+   pip install -r requirements.txt
    export PYTHONPATH=$PWD
    ```
 
