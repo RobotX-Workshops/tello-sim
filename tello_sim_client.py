@@ -238,6 +238,10 @@ class TelloSimClient:
                 except Exception:
                     # A failing callback must not kill the stream.
                     logging.exception("[Wrapper] Telemetry callback raised")
+            # The reader owns the socket: closing it here (not in
+            # unsubscribe_state) keeps the shutdown safe when unsubscribe
+            # is called from within the callback itself.
+            self._telemetry_socket.close()
 
         self._telemetry_thread = threading.Thread(target=_reader, daemon=True)
         self._telemetry_thread.start()
@@ -251,8 +255,11 @@ class TelloSimClient:
             self._telemetry_socket.sendto(b'unsubscribe', self._telemetry_addr)
         except OSError:
             pass
-        self._telemetry_thread.join(timeout=2.0)
-        self._telemetry_socket.close()
+        # Safe to call from within the callback itself: the reader thread
+        # can't join itself, so let it wind down on the running flag instead
+        # (it closes the socket as it exits).
+        if threading.current_thread() is not self._telemetry_thread:
+            self._telemetry_thread.join(timeout=2.0)
         self._telemetry_thread = None
 
     def connect(self):
