@@ -124,7 +124,17 @@ class TelloSimClient:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((self.host, self.port))
                 s.send(command.encode())
-                return s.recv(4096).decode()
+                # The server sends one response and closes the connection, so
+                # read until EOF. A single recv() can return a truncated
+                # payload when TCP splits a larger JSON response (get_state /
+                # get_position), yielding intermittent parse failures.
+                chunks = []
+                while True:
+                    chunk = s.recv(4096)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                return b''.join(chunks).decode()
         except ConnectionRefusedError:
             print(f"[Error] Unable to retrieve '{command}' from {self.host}:{self.port}")
             return "N/A"
@@ -209,58 +219,77 @@ class TelloSimClient:
         if getattr(self, '_telemetry_thread', None):
             print("[Wrapper] Already subscribed to telemetry.")
             return
-        self._telemetry_running = True
-        self._telemetry_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._telemetry_socket.settimeout(1.0)
-        self._telemetry_addr = (self.host, telemetry_port)
+        # Every subscription owns its own socket and stop event, captured as
+        # locals by the reader. Sharing them on self let a resubscribe (e.g.
+        # from inside a callback that first unsubscribed) hand a still-running
+        # old reader the new subscription's socket/flag — so the old reader
+        # could keep receiving on, or close, the new socket.
+        stop_event = threading.Event()
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(1.0)
+        addr = (self.host, telemetry_port)
 
-        def _reader():
+        def _reader() -> None:
             last_keepalive = 0.0
-            while self._telemetry_running:
-                now = time.time()
-                # Refresh the subscription well inside the server's 10 s TTL.
-                if now - last_keepalive > 3.0:
+            try:
+                while not stop_event.is_set():
+                    now = time.time()
+                    # Refresh the subscription well inside the server's 10 s TTL.
+                    if now - last_keepalive > 3.0:
+                        try:
+                            sock.sendto(b'subscribe', addr)
+                            last_keepalive = now
+                        except OSError:
+                            pass
                     try:
-                        self._telemetry_socket.sendto(b'subscribe', self._telemetry_addr)
-                        last_keepalive = now
+                        data, _ = sock.recvfrom(4096)
+                    except TimeoutError:
+                        continue
                     except OSError:
-                        pass
-                try:
-                    data, _ = self._telemetry_socket.recvfrom(4096)
-                except socket.timeout:
-                    continue
-                except OSError:
-                    break
-                try:
-                    callback(json.loads(data.decode()))
-                except json.JSONDecodeError:
-                    continue
-                except Exception:
-                    # A failing callback must not kill the stream.
-                    logging.exception("[Wrapper] Telemetry callback raised")
-            # The reader owns the socket: closing it here (not in
-            # unsubscribe_state) keeps the shutdown safe when unsubscribe
-            # is called from within the callback itself.
-            self._telemetry_socket.close()
+                        break
+                    try:
+                        callback(json.loads(data.decode()))
+                    except json.JSONDecodeError:
+                        continue
+                    except Exception:
+                        # A failing callback must not kill the stream.
+                        logging.exception("[Wrapper] Telemetry callback raised")
+            finally:
+                # This reader owns `sock`, so it closes only its own socket.
+                # Clear the shared handle only if it still points at us — a
+                # resubscribe may already have installed a newer reader.
+                sock.close()
+                if self._telemetry_thread is thread:
+                    self._telemetry_thread = None
 
-        self._telemetry_thread = threading.Thread(target=_reader, daemon=True)
-        self._telemetry_thread.start()
+        thread = threading.Thread(target=_reader, daemon=True)
+        # Record this subscription's handles so unsubscribe_state can signal it.
+        self._telemetry_stop = stop_event
+        self._telemetry_socket = sock
+        self._telemetry_addr = addr
+        self._telemetry_thread = thread
+        thread.start()
 
     def unsubscribe_state(self):
         """Stop the UDP telemetry subscription started by subscribe_state()."""
-        if not getattr(self, '_telemetry_thread', None):
+        thread = getattr(self, '_telemetry_thread', None)
+        if not thread:
             return
-        self._telemetry_running = False
+        # Signal this subscription's reader via its own stop event, and nudge
+        # the server on this subscription's own socket/addr.
+        self._telemetry_stop.set()
         try:
             self._telemetry_socket.sendto(b'unsubscribe', self._telemetry_addr)
         except OSError:
             pass
         # Safe to call from within the callback itself: the reader thread
-        # can't join itself, so let it wind down on the running flag instead
-        # (it closes the socket as it exits).
-        if threading.current_thread() is not self._telemetry_thread:
-            self._telemetry_thread.join(timeout=2.0)
-        self._telemetry_thread = None
+        # can't join itself, so let it wind down on its stop event instead
+        # (it closes its own socket as it exits).
+        if threading.current_thread() is not thread:
+            thread.join(timeout=2.0)
+        # Clear the handle only if a resubscribe hasn't already replaced it.
+        if self._telemetry_thread is thread:
+            self._telemetry_thread = None
 
     def connect(self):
         self._send_command('connect')

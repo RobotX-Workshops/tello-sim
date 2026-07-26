@@ -53,8 +53,16 @@ class TelloDroneSim:
         server_thread.daemon = True
         server_thread.start()
 
-        self._telemetry.start()
-        
+        # The TCP listener is already serving 9999. If the telemetry publisher
+        # fails to bind its UDP port, tear the whole thing down instead of
+        # leaving a half-started simulator still holding 9999.
+        try:
+            self._telemetry.start()
+        except OSError as e:
+            print(f"[Tello Sim] Telemetry failed to start: {e}")
+            self.cleanup()
+            raise
+
         try:
             self._ursina_adapter.run()
         except KeyboardInterrupt:
