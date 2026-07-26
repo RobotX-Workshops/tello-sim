@@ -121,6 +121,10 @@ class UrsinaAdapter():
         
         self.is_flying = False
         self.battery_level = 100
+        # Tracks the last battery warning tier logged ("", "low", "depleted")
+        # so the console message prints once per transition rather than every
+        # frame across the whole 10%-to-0% interval.
+        self._battery_warning_state = ""
         self.altitude = 0
         self.start_time = time()
         self.last_time = self.start_time
@@ -942,16 +946,22 @@ class UrsinaAdapter():
         battery = self.get_battery()
 
         if 0 < battery <= 10:
-            print("\n========== Battery Low! ==========\n")
-            # Blink the on-screen warning roughly twice a second.
+            # Log only when we first cross into the low-battery tier, not every
+            # frame, but keep blinking the on-screen warning twice a second.
+            if self._battery_warning_state != "low":
+                print("\n========== Battery Low! ==========\n")
+                self._battery_warning_state = "low"
             return "Battery Low!" if time() % 1 < 0.5 else ""
 
         if battery == 0:
-            print("\n========== Battery Depleted! ==========\n")
+            if self._battery_warning_state != "depleted":
+                print("\n========== Battery Depleted! ==========\n")
+                self._battery_warning_state = "depleted"
             if self.is_flying:
                 self.emergency()
             return "Battery Depleted!"
 
+        self._battery_warning_state = ""
         return ""
 
     def update_meters(self, warning: str = ""):
