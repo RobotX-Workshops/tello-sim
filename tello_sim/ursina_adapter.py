@@ -52,6 +52,22 @@ GROUND_Y = 3.0                 # drone floor clamp; used as the ground reference
 RC_YAW_RATE_DEG_S = 1.0             # deg/s per rc stick unit; full stick (100) ≈ 100 deg/s
 BATTERY_FLIGHT_DURATION_S = 3600.0  # full battery lasts this much accumulated flight time
 
+# On-screen telemetry overlay: battery bar, altitude/orientation/speed readouts, and the
+# pulsing takeoff-status dots. Off by default — it clutters the view and, because the FPV
+# path grabs the whole framebuffer, it gets burned into captured photos and video.
+# Set to True to restore it.
+SHOW_HUD = False
+
+# Keyboard shortcuts. Nothing is drawn on screen for these; the bindings are printed to
+# the console on startup by print_controls().
+# Ursina reports modifier keys per side ('left shift'/'right shift' — see the
+# _input_name_changes map in ursina/main.py); a bare 'shift' event is never emitted, so
+# takeoff has to accept both.
+GATE_EDITOR_KEY = 'g'
+LAND_KEY = 'l'
+TAKEOFF_KEYS = ('left shift', 'right shift')
+TAKEOFF_LABEL = 'shift'
+
 MIN_GATE_DIAMETER_CM = 23.0
 MAX_GATE_DIAMETER_CM = 50.0
 MIN_GATE_CLEARANCE_CM = 30.0   # minimum gap from ground to the bottom of the ring
@@ -121,43 +137,11 @@ class UrsinaAdapter():
         self.bezier_duration = 0
         self.bezier_start_time = None
         self.bezier_mode = False
-        self.dynamic_island = Entity(
-            parent=camera.ui,
-            model=Quad(radius=0.09),  # Rounded rectangle
-            color=color.black50,  # Slightly transparent black
-            scale=(0.5, 0.065),  # Elongated shape
-            position=(0, 0.45),  # Center top position
-            z=0
-        )
-        
-        # Takeoff Indicator UI
-        self.takeoff_indicator_left = Entity(
-            parent=camera.ui,
-            model=Circle(resolution=30),
-            color=color.green,  
-            scale=(0.03, 0.03, 1),  
-            position=(0.07, 0.45),  
-            z=-1
-        )
+        self.show_hud = SHOW_HUD
 
-        self.takeoff_indicator_middle = Entity(
-            parent=camera.ui,
-            model=Circle(resolution=30),
-            color=color.green,  
-            scale=(0.03, 0.03, 1),  
-            position=(0.12, 0.45), 
-            z=-1
-        )
-        
-        self.takeoff_indicator_right = Entity(
-            parent=camera.ui,
-            model=Circle(resolution=30),
-            color=color.green,  
-            scale=(0.03, 0.03, 1),  
-            position=(0.17, 0.45),  
-            z=-1
-        )
-        
+        if self.show_hud:
+            self.create_takeoff_indicator()
+
         self.drone = Entity(
             model='entities/tello.glb',
             scale=0.06,
@@ -384,7 +368,8 @@ class UrsinaAdapter():
         self.max_roll = 20  
         self.tilt_smoothness = 0.05  
 
-        self.create_meters()
+        if self.show_hud:
+            self.create_meters()
         self.create_gate_editor()
 
     # ------------------------------------------------------------------ gates ---
@@ -511,25 +496,26 @@ class UrsinaAdapter():
         self.gate_editor_panel.y = 0.4
         self.gate_editor_panel.enabled = False
 
-        # Always-visible toggle for the editor panel.
-        self.gate_editor_toggle = Button(
-            parent=camera.ui, text='Edit Gates', color=color.azure,
-            scale=(0.15, 0.05), position=(-0.7, -0.43),
-        )
-        self.gate_editor_toggle.on_click = self.toggle_gate_editor
-
         self._sync_editor_to_gate()
 
     def toggle_gate_editor(self) -> None:
+        """Show/hide the gate editor panel. Bound to the GATE_EDITOR_KEY press."""
+        if self.stream_active and not self.gate_editor_panel.enabled:
+            # Opening it now would burn the panel into the captured frames.
+            print("[Gate Editor] Not available while streaming. Run streamoff first.")
+            return
+
         self.gate_editor_panel.enabled = not self.gate_editor_panel.enabled
         if self.gate_editor_panel.enabled:
             self._sync_editor_to_gate()
+            print("[Gate Editor] Opened. Press "
+                  f"'{GATE_EDITOR_KEY}' again to close.")
+        else:
+            print("[Gate Editor] Closed.")
 
     def _update_editor_visibility(self) -> None:
         """Hide the gate editor while streaming so it isn't captured in the video."""
-        streaming = self.stream_active
-        self.gate_editor_toggle.enabled = not streaming
-        if streaming and self.gate_editor_panel.enabled:
+        if self.stream_active and self.gate_editor_panel.enabled:
             self.gate_editor_panel.enabled = False
 
     def _select_next_gate(self) -> None:
@@ -629,9 +615,52 @@ class UrsinaAdapter():
 
         return pivot
 
+    def print_controls(self) -> None:
+        """Print the keyboard shortcuts. Called once on startup."""
+        lines = [
+            "",
+            "=" * 70,
+            "  Tello Simulator - keyboard controls",
+            "=" * 70,
+            f"  {TAKEOFF_LABEL:<12} take off",
+            f"  {LAND_KEY:<12} land",
+            f"  {GATE_EDITOR_KEY:<12} open/close the gate editor",
+            "",
+            "  The gate editor has sliders for position, diameter, height and",
+            "  heading, a button to cycle gates, and 'Save to gates.json' to",
+            "  persist the layout. It stays hidden while the video stream is on.",
+            "",
+            "  Flight can also be driven over TCP on port 9999 (see examples/).",
+        ]
+        if not SHOW_HUD:
+            lines += [
+                "",
+                f"  The on-screen telemetry overlay is off (SHOW_HUD in "
+                f"{os.path.basename(__file__)}).",
+                "  Read telemetry with the API instead - see examples/3_drone_information.py.",
+            ]
+        lines += ["=" * 70, ""]
+        print("\n".join(lines))
+
+    def handle_input(self, key: str) -> None:
+        """Dispatch a key press from Ursina's global input hook."""
+        if key == GATE_EDITOR_KEY:
+            self.toggle_gate_editor()
+        elif key in TAKEOFF_KEYS:
+            if self.is_connected:
+                self.takeoff()
+            else:
+                print("Tello Simulator: Not connected yet - connect first.")
+        elif key == LAND_KEY:
+            if self.is_connected:
+                self.land()
+            else:
+                print("Tello Simulator: Not connected yet - connect first.")
+
     def run(self):
+        self.print_controls()
         self.app.run()
-        
+
     def connect(self):
         """Simulate connecting to the drone."""
         if not self.is_connected:
@@ -641,7 +670,46 @@ class UrsinaAdapter():
             self.takeoff_time = None
             self.battery_level = 100
             self.is_connected = True
-            print("Tello Simulator: Connection successful! Press 'Shift' to take off.")
+            print("Tello Simulator: Connection successful! "
+                  f"Press '{TAKEOFF_LABEL}' to take off.")
+
+    def create_takeoff_indicator(self):
+        """Build the top-center status plate and its three pulsing dots."""
+        self.dynamic_island = Entity(
+            parent=camera.ui,
+            model=Quad(radius=0.09),  # Rounded rectangle
+            color=color.black50,  # Slightly transparent black
+            scale=(0.5, 0.065),  # Elongated shape
+            position=(0, 0.45),  # Center top position
+            z=0
+        )
+
+        self.takeoff_indicator_left = Entity(
+            parent=camera.ui,
+            model=Circle(resolution=30),
+            color=color.green,
+            scale=(0.03, 0.03, 1),
+            position=(0.07, 0.45),
+            z=-1
+        )
+
+        self.takeoff_indicator_middle = Entity(
+            parent=camera.ui,
+            model=Circle(resolution=30),
+            color=color.green,
+            scale=(0.03, 0.03, 1),
+            position=(0.12, 0.45),
+            z=-1
+        )
+
+        self.takeoff_indicator_right = Entity(
+            parent=camera.ui,
+            model=Circle(resolution=30),
+            color=color.green,
+            scale=(0.03, 0.03, 1),
+            position=(0.17, 0.45),
+            z=-1
+        )
 
     def update_takeoff_indicator(self):
         """Blinking effect for takeoff status"""
@@ -865,10 +933,31 @@ class UrsinaAdapter():
 
         self.enqueue_command(command)
     
-    def update_meters(self):
-        """Update telemetry meters"""
+    def _check_battery_warnings(self) -> str:
+        """Battery warnings and the automatic emergency landing at 0%.
+
+        Runs every frame regardless of show_hud: the emergency landing is flight
+        behaviour, not display. Returns the text the HUD should show ("" for none).
+        """
         battery = self.get_battery()
-        
+
+        if 0 < battery <= 10:
+            print("\n========== Battery Low! ==========\n")
+            # Blink the on-screen warning roughly twice a second.
+            return "Battery Low!" if time() % 1 < 0.5 else ""
+
+        if battery == 0:
+            print("\n========== Battery Depleted! ==========\n")
+            if self.is_flying:
+                self.emergency()
+            return "Battery Depleted!"
+
+        return ""
+
+    def update_meters(self, warning: str = ""):
+        """Update telemetry meters. Only called when show_hud is set."""
+        battery = self.get_battery()
+
         # Update battery fill width with padding
         fill_width = 0.92 * (battery / 100)
         self.battery_fill.scale_x = fill_width
@@ -905,24 +994,9 @@ class UrsinaAdapter():
         self.speed_y_text.text = f"Speed Y: {speed_y} km/h"
         self.speed_z_text.text = f"Speed Z: {speed_z} km/h"
 
+        self.warning_text.text = warning
 
-        # Battery warning
-        current_time = time() % 1
-        if battery <= 10 and battery > 0:
-            if current_time < 0.5:
-                self.warning_text.text = "Battery Low!"
-            else:
-                self.warning_text.text = ""
-            print("\n========== Battery Low! ==========\n")
-        
-        elif battery == 0:
-            self.warning_text.text = "Battery Depleted!"
-            print("\n========== Battery Depleted! ==========\n")
 
-            # **Trigger Emergency Landing**
-            if self.is_flying:
-                self.emergency()
-    
     def update_movement(self) -> None:
         self.velocity += self.acceleration
         
@@ -975,8 +1049,10 @@ class UrsinaAdapter():
             self.drone_camera.rotation_x = 10  # Prevent pitch tilting
             self.drone_camera.rotation_z = 0  # Prevent roll tilting
 
-        self.update_meters()
-        
+        warning = self._check_battery_warnings()
+        if self.show_hud:
+            self.update_meters(warning)
+
     def enqueue_command(self, command_func, *args, **kwargs):
         self.command_queue.append((command_func, args, kwargs))
         if not self.is_moving:
@@ -1255,7 +1331,8 @@ class UrsinaAdapter():
         if not self.is_connected:
             return
 
-        self.update_takeoff_indicator()
+        if self.show_hud:
+            self.update_takeoff_indicator()
 
         # Keep the gate editor hidden while streaming (the FPV grabs the whole frame).
         self._update_editor_visibility()
