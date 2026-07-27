@@ -1256,7 +1256,19 @@ class UrsinaAdapter():
     def emergency(self) -> None:
         if self.is_flying:
             print(" Emergency! Stopping all motors and descending immediately!")
-            # Stop movement 
+            # Cancel any in-flight animated move (animate_position runs on
+            # Ursina's animation system, independent of the is_flying tick gate)
+            # and drop queued/held commands so the drone can't keep travelling —
+            # or start the next command — while it descends.
+            for animation in list(self.drone.animations):
+                animation.kill()
+            self.command_queue.clear()
+            self.is_moving = False
+            self.bezier_mode = False
+            self.rc_control = None
+            self._reset_tilt()
+
+            # Stop movement
             self.velocity = Vec3(0, 0, 0)
             self.acceleration = Vec3(0, 0, 0)
 
