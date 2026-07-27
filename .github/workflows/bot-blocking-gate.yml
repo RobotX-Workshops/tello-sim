@@ -183,13 +183,15 @@ jobs:
             # OLDEST run for this SHA, which on a rerun reads stale
             # status/conclusion and can misclassify the skip /
             # in_progress cases.
-            # `--slurp` collects all pages into one array before `--jq`
-            # runs — without it `--jq` is applied per page and a SHA with
-            # more than one page of runs would emit one id per page
-            # (newline-separated), corrupting $run_id.
-            run_id=$(gh api --paginate --slurp \
+            # We collect all pages into one array via `jq -s` before
+            # selecting — without it, applying `--jq` per page (or
+            # combining `--paginate` with `gh api`'s own `--slurp`, which
+            # this CLI version rejects when paired with `--jq`) would emit
+            # one id per page (newline-separated) for a SHA with more than
+            # one page of runs, corrupting $run_id.
+            run_id=$(gh api --paginate \
               "repos/${{ github.repository }}/actions/workflows/claude-code-review.yml/runs?head_sha=${SHA}&per_page=10" \
-              --jq '[.[] | .workflow_runs[]] | sort_by(.created_at) | reverse | .[0].id // empty')
+              | jq -rs '[.[] | .workflow_runs[]] | sort_by(.created_at) | reverse | .[0].id // empty')
           fi
 
           if [[ -z "$run_id" ]]; then
@@ -207,12 +209,13 @@ jobs:
             # `claude-review` JOB's conclusion, not the workflow's.
             # `skipped` here means "secrets-gate said no" (fork PR /
             # missing secret).
-            # `--slurp` for the same reason as the run-id lookup above:
-            # per-page `--jq` would emit one value per page (e.g. "none"
-            # from a page without the claude-review job).
-            review_job_conclusion=$(gh api --paginate --slurp \
+            # Same page-aggregation reasoning as the run-id lookup above:
+            # applying `--jq` per page would emit one value per page (e.g.
+            # "none" from a page without the claude-review job), so we
+            # slurp all pages into one array with `jq -s` before selecting.
+            review_job_conclusion=$(gh api --paginate \
               "repos/${{ github.repository }}/actions/runs/${run_id}/jobs?per_page=100" \
-              --jq '[.[] | .jobs[] | select(.name == "claude-review")][0].conclusion // "none"')
+              | jq -rs '[.[] | .jobs[] | select(.name == "claude-review")][0].conclusion // "none"')
           fi
           echo "Claude Code Review run on $SHA: status=$status workflow_conclusion=$conclusion claude_review_job_conclusion=$review_job_conclusion"
           echo "status=$status" >> "$GITHUB_OUTPUT"
