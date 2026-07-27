@@ -183,7 +183,7 @@ jobs:
             # OLDEST run for this SHA, which on a rerun reads stale
             # status/conclusion and can misclassify the skip /
             # in_progress cases.
-            # We collect all pages into one array via `jq -s` before
+            # We collect all pages into one array via `jq -rs` before
             # selecting — without it, applying `--jq` per page (or
             # combining `--paginate` with `gh api`'s own `--slurp`, which
             # this CLI version rejects when paired with `--jq`) would emit
@@ -212,7 +212,7 @@ jobs:
             # Same page-aggregation reasoning as the run-id lookup above:
             # applying `--jq` per page would emit one value per page (e.g.
             # "none" from a page without the claude-review job), so we
-            # slurp all pages into one array with `jq -s` before selecting.
+            # slurp all pages into one array with `jq -rs` before selecting.
             review_job_conclusion=$(gh api --paginate \
               "repos/${{ github.repository }}/actions/runs/${run_id}/jobs?per_page=100" \
               | jq -rs '[.[] | .jobs[] | select(.name == "claude-review")][0].conclusion // "none"')
