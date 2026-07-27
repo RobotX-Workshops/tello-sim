@@ -1268,13 +1268,12 @@ class UrsinaAdapter():
                     image = Image.frombytes("RGBA", (width, height), pixel_data) # type: ignore
                     image = image.transpose(Image.FLIP_TOP_BOTTOM) # type: ignore
                     frame = cv2.cvtColor(np.array(image), cv2.COLOR_RGBA2BGR)
-                    
-                    self.latest_frame = frame.copy()
-                    #cv2.imshow("Tello FPV Stream", frame)
-                    if cv2.waitKey(1) & 0xFF == ord('q'):
-                        self.stream_active = False
-                        cv2.destroyAllWindows()
-                        print("[FPV] FPV preview stopped.")
+
+                    # cvtColor already returns a freshly allocated array that
+                    # nothing else mutates (readers re-encode/convert into new
+                    # arrays), so store it directly. An extra .copy() here would
+                    # duplicate the whole framebuffer on every streamed frame.
+                    self.latest_frame = frame
             except Exception as e:
                 print(f"[FPV] OpenGL read error: {e}")
         
