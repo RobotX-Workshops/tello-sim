@@ -27,7 +27,13 @@ Caller may pass `BASE_REF` and `HEAD_REF` via env. If absent:
 BASE_REF=${BASE_REF:-$(git merge-base HEAD origin/main)}
 HEAD_REF=${HEAD_REF:-HEAD}
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
+HEAD_SHA=$(git rev-parse "${HEAD_REF}^{commit}")
 ```
+
+`HEAD_SHA` is the resolved commit SHA of `HEAD_REF` (not the ref name),
+so it can be handed to the reviewer as the `PR HEAD SHA:` line the shared
+brief requires. Locally the working tree is the real branch tip — not a
+synthetic merge ref — so this SHA is the correct marker value.
 
 ## Flow
 
@@ -61,7 +67,11 @@ the user sees each turn live). Prompt body:
 ```text
 You are running inside an isolated git worktree off branch ${BRANCH}.
 Read the adversarial reviewer prompt at .claude/prompts/adversarial_reviewer.md
-and follow it exactly. The diff under review:
+and follow it exactly.
+
+PR HEAD SHA: ${HEAD_SHA}
+
+The diff under review:
 
   git diff ${BASE_REF}..${HEAD_REF}
 
