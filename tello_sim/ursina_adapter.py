@@ -118,6 +118,13 @@ class UrsinaAdapter():
         window.render_mode = 'default'  
         self.command_queue = []
         self.is_moving = False
+        # The scheduled Sequence returned by the latest
+        # invoke(self._motion_complete_callback, ...). Commands are serialized
+        # through command_queue/is_moving, so at most one is ever pending. Held
+        # so emergency() can cancel it — a stale callback firing after an
+        # emergency (and a subsequent takeoff/move) would otherwise flip
+        # is_moving and launch the next queued command mid-flight.
+        self._motion_complete_seq = None
         Sky(texture='sky_sunset')
         
         self.is_flying = False
@@ -935,7 +942,7 @@ class UrsinaAdapter():
             duration = max(0.5, abs(angle) / 90)
             self.drone.animate('rotation_y', target_yaw, duration=duration, curve=curve.in_out_quad)
             print(f"Tello Simulator: Smoothly rotating {angle} degrees over {duration:.2f} seconds.")
-            invoke(self._motion_complete_callback, delay=duration)
+            self._motion_complete_seq = invoke(self._motion_complete_callback, delay=duration)
 
         self.enqueue_command(command)
 
@@ -955,7 +962,7 @@ class UrsinaAdapter():
             duration = max(0.5, abs(target_altitude - current_altitude))
             self.drone.animate('y', target_altitude, duration=duration, curve=curve.in_out_quad)
             self.altitude = target_altitude
-            invoke(self._motion_complete_callback, delay=duration)
+            self._motion_complete_seq = invoke(self._motion_complete_callback, delay=duration)
 
         self.enqueue_command(command)
     
@@ -1130,7 +1137,7 @@ class UrsinaAdapter():
             self.drone.animate_position(target_position, duration=duration, curve=curve.in_out_quad)
             # Ease the tilt back out before the move finishes.
             invoke(self._reset_tilt, delay=duration * 0.7)
-            invoke(self._motion_complete_callback, delay=duration)
+            self._motion_complete_seq = invoke(self._motion_complete_callback, delay=duration)
 
         self.enqueue_command(command)
 
@@ -1246,7 +1253,7 @@ class UrsinaAdapter():
 
             self.drone.animate_position(target_position, duration=duration, curve=curve.in_out_cubic)
             self.drone.animate('rotation_y', target_yaw, duration=duration, curve=curve.in_out_cubic)
-            invoke(self._motion_complete_callback, delay=duration)
+            self._motion_complete_seq = invoke(self._motion_complete_callback, delay=duration)
 
         self.enqueue_command(command)
 
@@ -1290,6 +1297,8 @@ class UrsinaAdapter():
             print("Tello Simulator: Already in air.")
     
     def _motion_complete_callback(self):
+        # This fired, so the sequence has run — drop the stale reference.
+        self._motion_complete_seq = None
         self.is_moving = False
         self._execute_next_command()
         
@@ -1317,6 +1326,14 @@ class UrsinaAdapter():
             # or start the next command — while it descends.
             for animation in list(self.drone.animations):
                 animation.kill()
+            # invoke(self._motion_complete_callback, ...) returns a standalone
+            # Sequence that is NOT in self.drone.animations, so the loop above
+            # never cancels it. Kill it explicitly, or a delayed callback could
+            # fire after a later takeoff/move and flip is_moving / launch the
+            # next queued command mid-flight.
+            if self._motion_complete_seq is not None:
+                self._motion_complete_seq.kill()
+                self._motion_complete_seq = None
             self.command_queue.clear()
             self.is_moving = False
             self.bezier_mode = False
