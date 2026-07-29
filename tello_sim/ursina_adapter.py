@@ -65,6 +65,7 @@ SHOW_HUD = False
 # takeoff has to accept both.
 GATE_EDITOR_KEY = 'g'
 LAND_KEY = 'l'
+RESET_VIEW_KEY = 'v'
 TAKEOFF_KEYS = ('left shift', 'right shift')
 TAKEOFF_LABEL = 'shift'
 
@@ -347,8 +348,18 @@ class UrsinaAdapter():
         self.third_person_position = (0, 5, -15)
         self.third_person_rotation = (10, 0, 0)
         self.first_person_position = (0, 0.5, 22)
+        self.first_person_rotation = (0, 0, 0)
+        self.grounded_camera_offset = Vec3(0, 3, -7)  # holder offset while landed
         self.drone_camera.position = self.third_person_position
         self.drone_camera.rotation = self.third_person_rotation
+
+        # Snapshot for reset_view(). EditorCamera lets the user orbit/pan/zoom freely and
+        # never restores any of it, so remember where the view started. camera.position /
+        # camera.fov already hold Ursina's defaults here: EditorCamera.on_enable runs during
+        # its __init__, and the reparent above doesn't re-fire it.
+        self._default_camera_local_position = Vec3(camera.position)
+        self._default_camera_target_z = self.drone_camera.target_z
+        self._default_camera_fov = camera.fov
         self.is_flying = False
 
         self.velocity: Vec3 = Vec3(0, 0, 0)
@@ -439,8 +450,12 @@ class UrsinaAdapter():
         path = [
             Vec3(cos(i / segments * 2 * pi) * radius,
                  sin(i / segments * 2 * pi) * radius, 0)
-            for i in range(segments + 1)
+            for i in range(segments)
         ]
+        # Repeat the exact first point rather than computing it at 2*pi: Pipe only
+        # mitres the closing seam when path[0] == path[-1] exactly, and sin(2*pi)
+        # is -2.4e-16, not 0. Without this the seam renders as an open wedge.
+        path.append(path[0])
         return Entity(
             model=Pipe(
                 base_shape=Circle(resolution=12, radius=tube),
@@ -629,6 +644,10 @@ class UrsinaAdapter():
             f"  {TAKEOFF_LABEL:<12} take off",
             f"  {LAND_KEY:<12} land",
             f"  {GATE_EDITOR_KEY:<12} open/close the gate editor",
+            f"  {RESET_VIEW_KEY:<12} reset the camera view to its starting position",
+            "",
+            "  Drag with the right mouse button to orbit, the middle button to pan, and",
+            f"  scroll to zoom. Press '{RESET_VIEW_KEY}' to put the view back where it started.",
             "",
             "  The gate editor has sliders for position, diameter, height and",
             "  heading, a button to cycle gates, and 'Save to gates.json' to",
@@ -650,6 +669,9 @@ class UrsinaAdapter():
         """Dispatch a key press from Ursina's global input hook."""
         if key == GATE_EDITOR_KEY:
             self.toggle_gate_editor()
+        elif key == RESET_VIEW_KEY:
+            # A view control, not a flight command - no is_connected guard.
+            self.reset_view()
         elif key in TAKEOFF_KEYS:
             if self.is_connected:
                 self.takeoff()
@@ -1122,11 +1144,44 @@ class UrsinaAdapter():
         if self.first_person_view:
             # First-person view
             self.drone_camera.position = self.first_person_position
-            self.drone_camera.rotation = (0, 0, 0)
+            self.drone_camera.rotation = self.first_person_rotation
         else:
             # Third-person view
             self.drone_camera.position = self.third_person_position
             self.drone_camera.rotation = self.third_person_rotation
+
+    def reset_view(self) -> None:
+        """Restore the camera to its startup framing. Bound to the RESET_VIEW_KEY press.
+
+        EditorCamera lets the user orbit (right-drag), pan (middle-drag) and zoom
+        (scroll), and none of it is fully undone by the follow code - while landed
+        nothing touches the camera at all. So undo every piece here: rig offset, orbit
+        rotation, zoom (target_z *and* camera.z, which is only lerped toward it) and the
+        orthographic/fov state from EditorCamera's built-in shift+p shortcut. Doesn't
+        touch first_person_view, which is owned by the streamon/streamoff pairing.
+        """
+        if self.first_person_view:
+            self.drone_camera.position = self.first_person_position
+            self.drone_camera.rotation = self.first_person_rotation
+        else:
+            self.drone_camera.position = self.third_person_position
+            self.drone_camera.rotation = self.third_person_rotation
+
+        camera.orthographic = False
+        camera.position = self._default_camera_local_position
+        self.drone_camera.target_z = self._default_camera_target_z
+        camera.fov = self._default_camera_fov
+        self.drone_camera.target_fov = self._default_camera_fov
+
+        # Snap the follower so the view doesn't drift back over the next second
+        # (mirrors the per-frame logic in update_movement/_tick_impl).
+        if self.is_flying:
+            self.camera_holder.position = self.drone.position
+        else:
+            self.camera_holder.position = self.drone.position + self.grounded_camera_offset
+        self.camera_holder.rotation = (0, self.drone.rotation_y, 0)
+
+        print("Tello Simulator: View reset.")
     
     def send_rc_control(self, left_right_velocity_ms: float, forward_backward_velocity_ms: float, up_down_velocity_ms: float, yaw_velocity_ms: float):
         # Store the stick values atomically; tick() applies them in the body
@@ -1377,7 +1432,7 @@ class UrsinaAdapter():
                 print(f"[FPV] OpenGL read error: {e}")
         
         if not self.is_flying:
-            self.camera_holder.position = self.drone.position + Vec3(0, 3, -7)
+            self.camera_holder.position = self.drone.position + self.grounded_camera_offset
             
             return
         
