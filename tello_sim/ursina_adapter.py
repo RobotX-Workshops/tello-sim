@@ -125,6 +125,12 @@ class UrsinaAdapter():
         # emergency (and a subsequent takeoff/move) would otherwise flip
         # is_moving and launch the next queued command mid-flight.
         self._motion_complete_seq = None
+        # The scheduled Sequence returned by the latest deferred land retry —
+        # invoke(self.land, delay=1.0) when a movement is still in progress.
+        # Held so emergency() can cancel it; a stale deferred land firing after
+        # an emergency (and a subsequent takeoff/move) would otherwise flip
+        # is_flying and begin descending mid-flight.
+        self._deferred_land_seq = None
         Sky(texture='sky_sunset')
         
         self.is_flying = False
@@ -1303,9 +1309,12 @@ class UrsinaAdapter():
         self._execute_next_command()
         
     def land(self) -> None:
+        # This deferred retry (if any) has now fired — drop the stale reference
+        # so emergency() doesn't try to kill an already-consumed Sequence.
+        self._deferred_land_seq = None
         if self.is_moving:
             print("Tello Simulator: Movement in progress. Deferring landing...")
-            invoke(self.land, delay=1.0)
+            self._deferred_land_seq = invoke(self.land, delay=1.0)
             return
         if self.is_flying:
             print("Tello Simulator: Drone landing...")
@@ -1334,6 +1343,13 @@ class UrsinaAdapter():
             if self._motion_complete_seq is not None:
                 self._motion_complete_seq.kill()
                 self._motion_complete_seq = None
+            # A deferred land retry (invoke(self.land, delay=1.0), scheduled
+            # while a move was in progress) is likewise a standalone Sequence
+            # outside self.drone.animations. Kill it too, or it could fire
+            # after a later takeoff/move and begin descending mid-flight.
+            if self._deferred_land_seq is not None:
+                self._deferred_land_seq.kill()
+                self._deferred_land_seq = None
             self.command_queue.clear()
             self.is_moving = False
             self.bezier_mode = False
