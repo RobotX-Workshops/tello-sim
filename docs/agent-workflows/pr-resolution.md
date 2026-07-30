@@ -233,6 +233,15 @@ run. Finish with `git worktree prune || true` and print:
 🧹 Cleaned <N> worktrees, <M> branches (kept <K> for blocked PRs).
 ```
 
+When reaping is skipped, say so and list what survived, one line per
+blocked PR, so the kept worktrees are actionable rather than merely
+counted:
+
+```text
+🧹 Cleanup skipped — <K> worktrees kept for blocked PRs:
+  #<n> <branch> — <absolute worktree path>
+```
+
 ## Final Reporting
 
 Restore `ORIGINAL_BRANCH` (skipping the restore if it is the literal
@@ -250,7 +259,11 @@ just a summary.
    State any ordering constraint explicitly — an implicit order gets
    merged out of sequence.
 2. **Blocked** — every `blocked-*` outcome with the worker's "what I'd
-   need to know" quoted verbatim.
+   need to know" quoted verbatim, plus that worker's absolute `Worktree`
+   path and its `Local branches`. Cleanup was skipped, so these worktrees
+   are still on disk and the path is the only way the user can `cd` in and
+   finish by hand. Reporting the reason without the path leaves them
+   hunting through `git worktree list`.
 3. **Left open** — threads deliberately left unresolved, with the PR and
    the question.
 4. **CI caveats** — checks red for reasons outside any PR's scope, so the

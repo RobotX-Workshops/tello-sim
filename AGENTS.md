@@ -58,15 +58,31 @@ ruff check tello_sim tello_sim_client.py examples
 
 # 3. Targeted runtime check — only for modules you touched, and only
 #    those that import cleanly headless (ursina opens a window).
-./venv/bin/python -c 'import tello_sim.telemetry_publisher'
+./venv/bin/python -c 'import tello_sim.ursina_adapter'
 ```
+
+Step 3 is deliberately narrow because the package does **not** import
+uniformly. `tello_sim.ursina_adapter` is the only module that imports
+cleanly package-qualified. `command_server.py`, `tello_drone_sim.py`, and
+`run_sim.py` use flat sibling imports (`from ursina_adapter import
+UrsinaAdapter`), so `import tello_sim.command_server` raises
+`ModuleNotFoundError: No module named 'ursina_adapter'`. Import those from
+inside `tello_sim/` instead:
+
+```bash
+(cd tello_sim && PYTHONPATH=. ../venv/bin/python -c 'import command_server')
+```
+
+Do not rewrite those imports to make step 3 uniform — `run_sim.py` is
+launched from inside the package and the flat form is what it relies on.
+That refactor is its own PR.
 
 **The tree is not ruff-clean.** These findings pre-date the current work
 and are present on `origin/main`:
 
 | Finding | Location |
 | --- | --- |
-| `F403` star-import from ursina | `tello_sim/command_server.py:6` |
+| `F403` star-import from ursina | `tello_sim/command_server.py:5` |
 | `F401` unused `time` | `examples/3_drone_information.py:2` |
 | `F401` unused `typing.cast` | `examples/6_record_video.py:4` |
 
