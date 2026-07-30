@@ -53,11 +53,19 @@ test, loosening a lint rule, or disabling a check — fix the cause.
 # 1. Syntax / import-time integrity across everything we ship.
 ./venv/bin/python -m compileall -q tello_sim tello_sim_client.py examples
 
-# 2. Lint. No repo config, so ruff uses its defaults.
-ruff check tello_sim tello_sim_client.py examples
+# 2. Lint. No repo config, so ruff uses its defaults. The shipped tree
+#    is NOT ruff-clean (see the baseline table below), so a whole-tree
+#    run reports pre-existing findings. Gate on your diff, not the tree:
+ruff check --output-format=concise $(git diff --name-only origin/main -- '*.py')
+#    A whole-tree `ruff check tello_sim tello_sim_client.py examples` is
+#    still useful to eyeball, but read it against the baseline below.
 
-# 3. Targeted runtime check — only for modules you touched, and only
-#    those that import cleanly headless (ursina opens a window).
+# 3. Targeted runtime check — only for the modules you touched, and only
+#    those that import cleanly headless (ursina opens a window). Derive
+#    the list from your diff rather than hard-coding it:
+#      for m in $(git diff --name-only origin/main -- 'tello_sim/*.py'); do ... ; done
+#    ursina_adapter is the one module that imports package-qualified, so
+#    it stands in as the example here — substitute the modules you edited:
 ./venv/bin/python -c 'import tello_sim.ursina_adapter'
 ```
 
@@ -189,14 +197,20 @@ Applies to threads from **every** reviewer — CodeRabbit, Copilot,
 
 ```bash
 gh api graphql -f query='
-  query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){
-    pullRequest(number:$n){reviewThreads(first:100){nodes{
+  query($o:String!,$r:String!,$n:Int!,$c:String){repository(owner:$o,name:$r){
+    pullRequest(number:$n){reviewThreads(first:100,after:$c){
+      pageInfo{hasNextPage endCursor} nodes{
       id isResolved isOutdated path line
       comments(first:20){nodes{author{login} body}}}}}}}' \
   -f o="$OWNER" -f r="$REPO" -F n="$PR" \
   --jq '[.data.repository.pullRequest.reviewThreads.nodes[]
          | select(.isResolved==false)]'
 ```
+
+`first:100` is one page. A PR with more than 100 threads truncates
+silently, so a partial page can falsely read as "zero unresolved". When
+`pageInfo.hasNextPage` is `true`, re-run passing `-f c="<endCursor>"`
+and accumulate the pages before deciding. The same applies to Step 6.
 
 Thread `id` values are opaque node IDs (`PRRT_...`) — carry them through;
 they are the handle for Step 5.
@@ -255,12 +269,17 @@ is empty:
 
 ```bash
 gh api graphql -f query='
-  query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){
-    pullRequest(number:$n){reviewThreads(first:100){nodes{isResolved}}}}}' \
+  query($o:String!,$r:String!,$n:Int!,$c:String){repository(owner:$o,name:$r){
+    pullRequest(number:$n){reviewThreads(first:100,after:$c){
+      pageInfo{hasNextPage endCursor} nodes{isResolved}}}}}' \
   -f o="$OWNER" -f r="$REPO" -F n="$PR" \
   --jq '[.data.repository.pullRequest.reviewThreads.nodes[]
          | select(.isResolved==false)] | length'
 ```
+
+As in Step 1, this is one page of 100. If `pageInfo.hasNextPage` is
+`true`, page through with `-f c="<endCursor>"` and sum the counts —
+a zero on the first page alone does **not** prove the PR is clean.
 
 A non-zero count means the PR is not done. Either finish the remaining
 threads or report `blocked-<reason>` naming them. Never report success
