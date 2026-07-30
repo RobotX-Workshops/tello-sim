@@ -64,6 +64,14 @@ jobs:
           # repo secret named CLAUDE_CODE_OAUTH_TOKEN. Rotate by re-running
           # `setup-token` and replacing the secret.
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Without this, the action tries to exchange the job's OIDC token
+          # for a Claude GitHub App installation token to post the review,
+          # which 401s ("Claude Code is not installed on this repository")
+          # unless the app is installed org-wide. Passing the workflow's own
+          # GITHUB_TOKEN (already scoped to pull-requests: write / issues:
+          # write above) lets the action use it directly instead, with no
+          # app installation required.
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           # The reviewer brief lives in .claude/prompts/adversarial_reviewer.md
           # (vendored from RobotX-Workshops/claude-skills) so this CI run and the
           # local /local-pr-review skill share a single source of truth. Edit the
