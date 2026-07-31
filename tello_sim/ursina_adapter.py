@@ -125,11 +125,13 @@ class UrsinaAdapter():
         # emergency (and a subsequent takeoff/move) would otherwise flip
         # is_moving and launch the next queued command mid-flight.
         self._motion_complete_seq = None
-        # The scheduled Sequence returned by the latest deferred land retry —
-        # invoke(self.land, delay=1.0) when a movement is still in progress.
-        # Held so emergency() can cancel it; a stale deferred land firing after
-        # an emergency (and a subsequent takeoff/move) would otherwise flip
-        # is_flying and begin descending mid-flight.
+        # The scheduled Sequence returned by the deferred land retry —
+        # invoke(self._deferred_land_callback, delay=1.0) when a movement is
+        # still in progress. land() refuses to schedule a second retry while
+        # this is set, so at most one is ever pending and emergency() cancelling
+        # it is sufficient. Held so emergency() can cancel it; a stale deferred
+        # land firing after an emergency (and a subsequent takeoff/move) would
+        # otherwise flip is_flying and begin descending mid-flight.
         self._deferred_land_seq = None
         Sky(texture='sky_sunset')
         
@@ -1308,14 +1310,38 @@ class UrsinaAdapter():
         self.is_moving = False
         self._execute_next_command()
         
-    def land(self) -> None:
-        # This deferred retry (if any) has now fired — drop the stale reference
-        # so emergency() doesn't try to kill an already-consumed Sequence.
+    def _deferred_land_callback(self) -> None:
+        # The scheduled retry has fired, so the Sequence is consumed — drop the
+        # stale reference before re-entering land(). Clearing it here rather
+        # than at the top of land() is what lets land() distinguish "a retry is
+        # already pending" from "this call *is* the retry".
         self._deferred_land_seq = None
+        self.land()
+
+    def land(self) -> None:
         if self.is_moving:
+            if self._deferred_land_seq is not None:
+                # A retry is already pending. Overwriting the reference here
+                # would orphan that Sequence without cancelling it: it stays
+                # scheduled, but emergency() (and the next land()) can only see
+                # the newest one. Each orphan re-arms itself on every tick it
+                # fires, so N land() calls during one move would leave N
+                # independent retry chains alive past the emergency that was
+                # supposed to cancel them. land() has three unserialized entry
+                # points — the command queue, the LAND_KEY handler, and end() —
+                # so overlapping calls are reachable.
+                print("Tello Simulator: Landing already deferred until movement completes.")
+                return
             print("Tello Simulator: Movement in progress. Deferring landing...")
-            self._deferred_land_seq = invoke(self.land, delay=1.0)
+            self._deferred_land_seq = invoke(self._deferred_land_callback, delay=1.0)
             return
+        # Not moving, so this call lands now and any retry still pending from an
+        # earlier land() is redundant — cancel it rather than let it fire into an
+        # already-grounded drone. No-op when this call came from the retry
+        # itself, which cleared the reference before re-entering.
+        if self._deferred_land_seq is not None:
+            self._deferred_land_seq.kill()
+            self._deferred_land_seq = None
         if self.is_flying:
             print("Tello Simulator: Drone landing...")
             current_altitude = self.drone.y
@@ -1343,10 +1369,12 @@ class UrsinaAdapter():
             if self._motion_complete_seq is not None:
                 self._motion_complete_seq.kill()
                 self._motion_complete_seq = None
-            # A deferred land retry (invoke(self.land, delay=1.0), scheduled
-            # while a move was in progress) is likewise a standalone Sequence
-            # outside self.drone.animations. Kill it too, or it could fire
-            # after a later takeoff/move and begin descending mid-flight.
+            # A deferred land retry (invoke(self._deferred_land_callback,
+            # delay=1.0), scheduled while a move was in progress) is likewise a
+            # standalone Sequence outside self.drone.animations. Kill it too, or
+            # it could fire after a later takeoff/move and begin descending
+            # mid-flight. land() dedupes, so cancelling this one reference
+            # cancels every pending retry.
             if self._deferred_land_seq is not None:
                 self._deferred_land_seq.kill()
                 self._deferred_land_seq = None
