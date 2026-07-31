@@ -25,9 +25,10 @@ os.makedirs(artifact_folder_path, exist_ok=True)
 
 print("[Example] Saving captured picture to:", artifact_folder_path)
 
-# Save the frame
+# Save the frame. The camera returns RGB (like a real Tello), so convert to
+# BGR for cv2.imwrite - the same conversion examples 4 and 6 already do.
 save_path = os.path.join(artifact_folder_path, "picture.png")
-cv2.imwrite(save_path, np.array(frame_read.frame))
+cv2.imwrite(save_path, cv2.cvtColor(np.array(frame_read.frame), cv2.COLOR_RGB2BGR))
 
 
 

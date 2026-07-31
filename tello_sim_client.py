@@ -103,9 +103,13 @@ class TelloSimClient:
                     nparr = np.frombuffer(frame_data, np.uint8)
                     image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                     if image is not None:
-                        # Return frame in BGR format (OpenCV's native format)
-                        # Users should convert to RGB if needed for display
-                        return BackgroundFrameRead(frame=image)
+                        # imdecode yields BGR; convert to RGB so the simulator's
+                        # frames match the real Tello's djitellopy interface, which
+                        # returns RGB. Consumers using OpenCV (cv2.imshow / imwrite /
+                        # cvtColor to HSV) convert RGB->BGR themselves, exactly as
+                        # they must for a real drone.
+                        return BackgroundFrameRead(
+                            frame=cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
                 
                 print("[Error] Failed to decode frame data")
                 return BackgroundFrameRead(frame=np.zeros([360, 640, 3], dtype=np.uint8))
