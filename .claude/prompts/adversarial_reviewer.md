@@ -89,7 +89,8 @@ derive it with `git rev-parse HEAD` or any other git command: in CI the
 checkout is the PR **merge ref** (`refs/pull/N/merge`), so `HEAD` is a
 synthetic merge commit whose SHA the gate will never match — the gate
 compares markers against the PR head SHA only.
-Example: if the prompt says `PR HEAD SHA:
-88d6207d4307f6b1c2e849a0f3ddcafe12345678`, write `sha=88d6207`.
+Example: given the prompt line
+`PR HEAD SHA: 88d6207d4307f6b1c2e849a0f3ddcafe12345678`, write
+`sha=88d6207`.
 The gate matches any hex-prefix of 7–40 chars (so the full 40-char SHA
 also works), but emit exactly 7 for consistency.
