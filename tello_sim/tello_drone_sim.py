@@ -1,4 +1,5 @@
 from command_server import CommandServer
+from telemetry_publisher import TelemetryPublisher
 from ursina_adapter import UrsinaAdapter
 import threading
 import atexit
@@ -9,6 +10,7 @@ class TelloDroneSim:
     def __init__(self):
         self._ursina_adapter = UrsinaAdapter()
         self._server = CommandServer(self._ursina_adapter)
+        self._telemetry = TelemetryPublisher(self._ursina_adapter)
         
         # Register cleanup handlers
         atexit.register(self.cleanup)
@@ -25,6 +27,8 @@ class TelloDroneSim:
         """Clean up resources."""
         if hasattr(self, '_server'):
             self._server.cleanup()
+        if hasattr(self, '_telemetry'):
+            self._telemetry.stop()
 
     @property
     def state(self):
@@ -48,7 +52,17 @@ class TelloDroneSim:
         server_thread = threading.Thread(target=self._server.listen)
         server_thread.daemon = True
         server_thread.start()
-        
+
+        # The TCP listener is already serving 9999. If the telemetry publisher
+        # fails to bind its UDP port, tear the whole thing down instead of
+        # leaving a half-started simulator still holding 9999.
+        try:
+            self._telemetry.start()
+        except OSError as e:
+            print(f"[Tello Sim] Telemetry failed to start: {e}")
+            self.cleanup()
+            raise
+
         try:
             self._ursina_adapter.run()
         except KeyboardInterrupt:

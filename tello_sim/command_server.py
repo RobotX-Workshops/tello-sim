@@ -1,3 +1,4 @@
+import json
 import socket
 import errno
 import logging
@@ -6,6 +7,7 @@ from ursina import * # type: ignore
 from time import time
 import cv2
 from ursina_adapter import UrsinaAdapter
+from telemetry_publisher import build_state
 
 logger = logging.getLogger(__name__)
 
@@ -265,6 +267,12 @@ class CommandServer:
                 "yaw": yaw
             }
             conn.sendall(str(attitude).encode())
+        elif data == "get_position":
+            state = build_state(self._ursina_adapter)
+            position = {key: state[key] for key in ("x", "y", "z", "yaw")}
+            conn.sendall(json.dumps(position).encode())
+        elif data == "get_state":
+            conn.sendall(json.dumps(build_state(self._ursina_adapter)).encode())
         elif data == "get_current_state":
             if self._sim_healthy():
                 state = "flying" if self._ursina_adapter.is_flying else "landed"
