@@ -79,6 +79,7 @@ jobs:
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
+            PR HEAD SHA: ${{ github.event.pull_request.head.sha }}
 
             Read the file `.claude/prompts/adversarial_reviewer.md` in this
             checkout and follow it exactly — that is your full reviewer brief,

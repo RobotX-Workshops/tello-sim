@@ -83,7 +83,14 @@ the gate fails the PR check whenever a review with `blocking=N` where
 N>0 exists on the head SHA without a later review with `blocking=0` on
 the SAME head SHA superseding it. Count `### Blocking` bullets
 accurately; "Blocking is `(none)`" means `blocking=0`. Substitute
-`<head-sha-short>` with the **7-char** prefix of the HEAD SHA you reviewed.
-Example: if HEAD is `88d6207d4307f6b1c2e849a0f3ddcafe12345678`, write `sha=88d6207`.
+`<head-sha-short>` with the **7-char** prefix of the PR HEAD SHA that
+was provided to you in the prompt (the `PR HEAD SHA:` line). Do NOT
+derive it with `git rev-parse HEAD` or any other git command: in CI the
+checkout is the PR **merge ref** (`refs/pull/N/merge`), so `HEAD` is a
+synthetic merge commit whose SHA the gate will never match — the gate
+compares markers against the PR head SHA only.
+Example: given the prompt line
+`PR HEAD SHA: 88d6207d4307f6b1c2e849a0f3ddcafe12345678`, write
+`sha=88d6207`.
 The gate matches any hex-prefix of 7–40 chars (so the full 40-char SHA
-also works), but emit exactly 7 for consistency with `git rev-parse --short`.
+also works), but emit exactly 7 for consistency.
