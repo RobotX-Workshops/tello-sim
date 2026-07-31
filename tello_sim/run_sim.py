@@ -19,6 +19,13 @@ def update():
     This function must be global and is called every frame by Ursina.
     """
     sim.update()
-    
+
+
+def input(key):  # noqa: A001 - Ursina looks up __main__.input by this exact name
+    """
+    This function must be global and is called by Ursina on every key press.
+    """
+    sim.input(key)
+
 
 sim.start()

@@ -75,3 +75,6 @@ class TelloDroneSim:
 
     def update(self) -> None:
         self._ursina_adapter.tick()
+
+    def input(self, key: str) -> None:
+        self._ursina_adapter.handle_input(key)

@@ -52,6 +52,23 @@ GROUND_Y = 3.0                 # drone floor clamp; used as the ground reference
 RC_YAW_RATE_DEG_S = 1.0             # deg/s per rc stick unit; full stick (100) ≈ 100 deg/s
 BATTERY_FLIGHT_DURATION_S = 3600.0  # full battery lasts this much accumulated flight time
 
+# On-screen telemetry overlay: battery bar, altitude/orientation/speed readouts, and the
+# pulsing takeoff-status dots. Off by default — it clutters the view and, because the FPV
+# path grabs the whole framebuffer, it gets burned into captured photos and video.
+# Set to True to restore it.
+SHOW_HUD = False
+
+# Keyboard shortcuts. Nothing is drawn on screen for these; the bindings are printed to
+# the console on startup by print_controls().
+# Ursina reports modifier keys per side ('left shift'/'right shift' — see the
+# _input_name_changes map in ursina/main.py); a bare 'shift' event is never emitted, so
+# takeoff has to accept both.
+GATE_EDITOR_KEY = 'g'
+LAND_KEY = 'l'
+RESET_VIEW_KEY = 'v'
+TAKEOFF_KEYS = ('left shift', 'right shift')
+TAKEOFF_LABEL = 'shift'
+
 MIN_GATE_DIAMETER_CM = 23.0
 MAX_GATE_DIAMETER_CM = 50.0
 MIN_GATE_CLEARANCE_CM = 30.0   # minimum gap from ground to the bottom of the ring
@@ -101,10 +118,29 @@ class UrsinaAdapter():
         window.render_mode = 'default'  
         self.command_queue = []
         self.is_moving = False
+        # The scheduled Sequence returned by the latest
+        # invoke(self._motion_complete_callback, ...). Commands are serialized
+        # through command_queue/is_moving, so at most one is ever pending. Held
+        # so emergency() can cancel it — a stale callback firing after an
+        # emergency (and a subsequent takeoff/move) would otherwise flip
+        # is_moving and launch the next queued command mid-flight.
+        self._motion_complete_seq = None
+        # The scheduled Sequence returned by the deferred land retry —
+        # invoke(self._deferred_land_callback, delay=1.0) when a movement is
+        # still in progress. land() refuses to schedule a second retry while
+        # this is set, so at most one is ever pending and emergency() cancelling
+        # it is sufficient. Held so emergency() can cancel it; a stale deferred
+        # land firing after an emergency (and a subsequent takeoff/move) would
+        # otherwise flip is_flying and begin descending mid-flight.
+        self._deferred_land_seq = None
         Sky(texture='sky_sunset')
         
         self.is_flying = False
         self.battery_level = 100
+        # Tracks the last battery warning tier logged ("", "low", "depleted")
+        # so the console message prints once per transition rather than every
+        # frame across the whole 10%-to-0% interval.
+        self._battery_warning_state = ""
         self.altitude = 0
         self.start_time = time()
         self.last_time = self.start_time
@@ -117,47 +153,19 @@ class UrsinaAdapter():
         self.frame_count = 0
         self.latest_frame = None
         self.last_altitude = self.altitude
+        # Vertical speed (km/h) sampled once per tick by _sample_vertical_speed().
+        # get_speed_y() only reads it, so the reading no longer depends on how
+        # often the API is polled or on whether the HUD is drawn.
+        self._vertical_speed_kmh = 0
         self.bezier_path = []
         self.bezier_duration = 0
         self.bezier_start_time = None
         self.bezier_mode = False
-        self.dynamic_island = Entity(
-            parent=camera.ui,
-            model=Quad(radius=0.09),  # Rounded rectangle
-            color=color.black50,  # Slightly transparent black
-            scale=(0.5, 0.065),  # Elongated shape
-            position=(0, 0.45),  # Center top position
-            z=0
-        )
-        
-        # Takeoff Indicator UI
-        self.takeoff_indicator_left = Entity(
-            parent=camera.ui,
-            model=Circle(resolution=30),
-            color=color.green,  
-            scale=(0.03, 0.03, 1),  
-            position=(0.07, 0.45),  
-            z=-1
-        )
+        self.show_hud = SHOW_HUD
 
-        self.takeoff_indicator_middle = Entity(
-            parent=camera.ui,
-            model=Circle(resolution=30),
-            color=color.green,  
-            scale=(0.03, 0.03, 1),  
-            position=(0.12, 0.45), 
-            z=-1
-        )
-        
-        self.takeoff_indicator_right = Entity(
-            parent=camera.ui,
-            model=Circle(resolution=30),
-            color=color.green,  
-            scale=(0.03, 0.03, 1),  
-            position=(0.17, 0.45),  
-            z=-1
-        )
-        
+        if self.show_hud:
+            self.create_takeoff_indicator()
+
         self.drone = Entity(
             model='entities/tello.glb',
             scale=0.06,
@@ -351,16 +359,32 @@ class UrsinaAdapter():
         )
 
         self.first_person_view = False
-        # Create a separate entity to hold the camera
-        self.camera_holder = Entity(position=self.drone.position, rotation=self.drone.rotation)   
+        self.grounded_camera_offset = Vec3(0, 3, -7)  # holder offset while landed
+        # Create a separate entity to hold the camera. Seed it with the grounded
+        # offset the tick applies once connected, so the pre-connect framing is
+        # the same one reset_view() restores — otherwise pressing RESET_VIEW_KEY
+        # before connecting shifts the view instead of leaving it alone.
+        self.camera_holder = Entity(
+            position=self.drone.position + self.grounded_camera_offset,
+            rotation=self.drone.rotation,
+        )
 
         self.drone_camera = EditorCamera()
         self.drone_camera.parent = self.camera_holder
         self.third_person_position = (0, 5, -15)
         self.third_person_rotation = (10, 0, 0)
         self.first_person_position = (0, 0.5, 22)
+        self.first_person_rotation = (0, 0, 0)
         self.drone_camera.position = self.third_person_position
         self.drone_camera.rotation = self.third_person_rotation
+
+        # Snapshot for reset_view(). EditorCamera lets the user orbit/pan/zoom freely and
+        # never restores any of it, so remember where the view started. camera.position /
+        # camera.fov already hold Ursina's defaults here: EditorCamera.on_enable runs during
+        # its __init__, and the reparent above doesn't re-fire it.
+        self._default_camera_local_position = Vec3(camera.position)
+        self._default_camera_target_z = self.drone_camera.target_z
+        self._default_camera_fov = camera.fov
         self.is_flying = False
 
         self.velocity: Vec3 = Vec3(0, 0, 0)
@@ -384,7 +408,8 @@ class UrsinaAdapter():
         self.max_roll = 20  
         self.tilt_smoothness = 0.05  
 
-        self.create_meters()
+        if self.show_hud:
+            self.create_meters()
         self.create_gate_editor()
 
     # ------------------------------------------------------------------ gates ---
@@ -450,8 +475,12 @@ class UrsinaAdapter():
         path = [
             Vec3(cos(i / segments * 2 * pi) * radius,
                  sin(i / segments * 2 * pi) * radius, 0)
-            for i in range(segments + 1)
+            for i in range(segments)
         ]
+        # Repeat the exact first point rather than computing it at 2*pi: Pipe only
+        # mitres the closing seam when path[0] == path[-1] exactly, and sin(2*pi)
+        # is -2.4e-16, not 0. Without this the seam renders as an open wedge.
+        path.append(path[0])
         return Entity(
             model=Pipe(
                 base_shape=Circle(resolution=12, radius=tube),
@@ -511,25 +540,26 @@ class UrsinaAdapter():
         self.gate_editor_panel.y = 0.4
         self.gate_editor_panel.enabled = False
 
-        # Always-visible toggle for the editor panel.
-        self.gate_editor_toggle = Button(
-            parent=camera.ui, text='Edit Gates', color=color.azure,
-            scale=(0.15, 0.05), position=(-0.7, -0.43),
-        )
-        self.gate_editor_toggle.on_click = self.toggle_gate_editor
-
         self._sync_editor_to_gate()
 
     def toggle_gate_editor(self) -> None:
+        """Show/hide the gate editor panel. Bound to the GATE_EDITOR_KEY press."""
+        if self.stream_active and not self.gate_editor_panel.enabled:
+            # Opening it now would burn the panel into the captured frames.
+            print("[Gate Editor] Not available while streaming. Run streamoff first.")
+            return
+
         self.gate_editor_panel.enabled = not self.gate_editor_panel.enabled
         if self.gate_editor_panel.enabled:
             self._sync_editor_to_gate()
+            print("[Gate Editor] Opened. Press "
+                  f"'{GATE_EDITOR_KEY}' again to close.")
+        else:
+            print("[Gate Editor] Closed.")
 
     def _update_editor_visibility(self) -> None:
         """Hide the gate editor while streaming so it isn't captured in the video."""
-        streaming = self.stream_active
-        self.gate_editor_toggle.enabled = not streaming
-        if streaming and self.gate_editor_panel.enabled:
+        if self.stream_active and self.gate_editor_panel.enabled:
             self.gate_editor_panel.enabled = False
 
     def _select_next_gate(self) -> None:
@@ -629,9 +659,59 @@ class UrsinaAdapter():
 
         return pivot
 
+    def print_controls(self) -> None:
+        """Print the keyboard shortcuts. Called once on startup."""
+        lines = [
+            "",
+            "=" * 70,
+            "  Tello Simulator - keyboard controls",
+            "=" * 70,
+            f"  {TAKEOFF_LABEL:<12} take off",
+            f"  {LAND_KEY:<12} land",
+            f"  {GATE_EDITOR_KEY:<12} open/close the gate editor",
+            f"  {RESET_VIEW_KEY:<12} reset the camera view to its starting position",
+            "",
+            "  Drag with the right mouse button to orbit, the middle button to pan, and",
+            f"  scroll to zoom. Press '{RESET_VIEW_KEY}' to put the view back where it started.",
+            "",
+            "  The gate editor has sliders for position, diameter, height and",
+            "  heading, a button to cycle gates, and 'Save to gates.json' to",
+            "  persist the layout. It stays hidden while the video stream is on.",
+            "",
+            "  Flight can also be driven over TCP on port 9999 (see examples/).",
+        ]
+        if not SHOW_HUD:
+            lines += [
+                "",
+                f"  The on-screen telemetry overlay is off (SHOW_HUD in "
+                f"{os.path.basename(__file__)}).",
+                "  Read telemetry with the API instead - see examples/3_drone_information.py.",
+            ]
+        lines += ["=" * 70, ""]
+        print("\n".join(lines))
+
+    def handle_input(self, key: str) -> None:
+        """Dispatch a key press from Ursina's global input hook."""
+        if key == GATE_EDITOR_KEY:
+            self.toggle_gate_editor()
+        elif key == RESET_VIEW_KEY:
+            # A view control, not a flight command - no is_connected guard.
+            self.reset_view()
+        elif key in TAKEOFF_KEYS:
+            if self.is_connected:
+                self.takeoff()
+            else:
+                print("Tello Simulator: Not connected yet - connect first.")
+        elif key == LAND_KEY:
+            if self.is_connected:
+                self.land()
+            else:
+                print("Tello Simulator: Not connected yet - connect first.")
+
     def run(self):
+        self.print_controls()
         self.app.run()
-        
+
     def connect(self):
         """Simulate connecting to the drone."""
         if not self.is_connected:
@@ -641,7 +721,46 @@ class UrsinaAdapter():
             self.takeoff_time = None
             self.battery_level = 100
             self.is_connected = True
-            print("Tello Simulator: Connection successful! Press 'Shift' to take off.")
+            print("Tello Simulator: Connection successful! "
+                  f"Press '{TAKEOFF_LABEL}' to take off.")
+
+    def create_takeoff_indicator(self):
+        """Build the top-center status plate and its three pulsing dots."""
+        self.dynamic_island = Entity(
+            parent=camera.ui,
+            model=Quad(radius=0.09),  # Rounded rectangle
+            color=color.black50,  # Slightly transparent black
+            scale=(0.5, 0.065),  # Elongated shape
+            position=(0, 0.45),  # Center top position
+            z=0
+        )
+
+        self.takeoff_indicator_left = Entity(
+            parent=camera.ui,
+            model=Circle(resolution=30),
+            color=color.green,
+            scale=(0.03, 0.03, 1),
+            position=(0.07, 0.45),
+            z=-1
+        )
+
+        self.takeoff_indicator_middle = Entity(
+            parent=camera.ui,
+            model=Circle(resolution=30),
+            color=color.green,
+            scale=(0.03, 0.03, 1),
+            position=(0.12, 0.45),
+            z=-1
+        )
+
+        self.takeoff_indicator_right = Entity(
+            parent=camera.ui,
+            model=Circle(resolution=30),
+            color=color.green,
+            scale=(0.03, 0.03, 1),
+            position=(0.17, 0.45),
+            z=-1
+        )
 
     def update_takeoff_indicator(self):
         """Blinking effect for takeoff status"""
@@ -808,17 +927,30 @@ class UrsinaAdapter():
         # as get_speed_y's altitude), then m/s -> km/h.
         return int(self.measured_velocity.x * 0.1 * 3.6)
 
-    def get_speed_y(self) -> int:
+    def _sample_vertical_speed(self) -> None:
+        """Advance the vertical-speed sample. Called once per tick.
+
+        Unlike speed X/Z, which read the per-frame `measured_velocity`, vertical
+        speed is a differential over `last_altitude`/`last_time`. Sampling has to
+        happen on the tick rather than inside get_speed_y(): if the getter
+        advanced the state, the value would be the *average* since whenever the
+        API last happened to poll, not the current speed. That used to be masked
+        by update_meters() calling the getter every frame, which SHOW_HUD=False
+        no longer does.
+        """
         current_time = time()
         elapsed_time = current_time - self.last_time
+        if elapsed_time <= 0:
+            return
 
-        if elapsed_time > 0:  
-            current_altitude = (self.drone.y * 0.1) - 0.3
-            vertical_speed = (current_altitude - self.last_altitude) / elapsed_time  
-            self.last_altitude = current_altitude
-            self.last_time = current_time
-            return int(vertical_speed * 3.6)  
-        return 0
+        current_altitude = (self.drone.y * 0.1) - 0.3
+        vertical_speed = (current_altitude - self.last_altitude) / elapsed_time
+        self.last_altitude = current_altitude
+        self.last_time = current_time
+        self._vertical_speed_kmh = int(vertical_speed * 3.6)
+
+    def get_speed_y(self) -> int:
+        return self._vertical_speed_kmh
 
     def get_speed_z(self) -> int:
         return int(self.measured_velocity.z * 0.1 * 3.6)
@@ -841,7 +973,7 @@ class UrsinaAdapter():
             duration = max(0.5, abs(angle) / 90)
             self.drone.animate('rotation_y', target_yaw, duration=duration, curve=curve.in_out_quad)
             print(f"Tello Simulator: Smoothly rotating {angle} degrees over {duration:.2f} seconds.")
-            invoke(self._motion_complete_callback, delay=duration)
+            self._motion_complete_seq = invoke(self._motion_complete_callback, delay=duration)
 
         self.enqueue_command(command)
 
@@ -861,14 +993,41 @@ class UrsinaAdapter():
             duration = max(0.5, abs(target_altitude - current_altitude))
             self.drone.animate('y', target_altitude, duration=duration, curve=curve.in_out_quad)
             self.altitude = target_altitude
-            invoke(self._motion_complete_callback, delay=duration)
+            self._motion_complete_seq = invoke(self._motion_complete_callback, delay=duration)
 
         self.enqueue_command(command)
     
-    def update_meters(self):
-        """Update telemetry meters"""
+    def _check_battery_warnings(self) -> str:
+        """Battery warnings and the automatic emergency landing at 0%.
+
+        Runs every frame regardless of show_hud: the emergency landing is flight
+        behaviour, not display. Returns the text the HUD should show ("" for none).
+        """
         battery = self.get_battery()
-        
+
+        if 0 < battery <= 10:
+            # Log only when we first cross into the low-battery tier, not every
+            # frame, but keep blinking the on-screen warning twice a second.
+            if self._battery_warning_state != "low":
+                print("\n========== Battery Low! ==========\n")
+                self._battery_warning_state = "low"
+            return "Battery Low!" if time() % 1 < 0.5 else ""
+
+        if battery == 0:
+            if self._battery_warning_state != "depleted":
+                print("\n========== Battery Depleted! ==========\n")
+                self._battery_warning_state = "depleted"
+            if self.is_flying:
+                self.emergency()
+            return "Battery Depleted!"
+
+        self._battery_warning_state = ""
+        return ""
+
+    def update_meters(self, warning: str = ""):
+        """Update telemetry meters. Only called when show_hud is set."""
+        battery = self.get_battery()
+
         # Update battery fill width with padding
         fill_width = 0.92 * (battery / 100)
         self.battery_fill.scale_x = fill_width
@@ -905,24 +1064,9 @@ class UrsinaAdapter():
         self.speed_y_text.text = f"Speed Y: {speed_y} km/h"
         self.speed_z_text.text = f"Speed Z: {speed_z} km/h"
 
+        self.warning_text.text = warning
 
-        # Battery warning
-        current_time = time() % 1
-        if battery <= 10 and battery > 0:
-            if current_time < 0.5:
-                self.warning_text.text = "Battery Low!"
-            else:
-                self.warning_text.text = ""
-            print("\n========== Battery Low! ==========\n")
-        
-        elif battery == 0:
-            self.warning_text.text = "Battery Depleted!"
-            print("\n========== Battery Depleted! ==========\n")
 
-            # **Trigger Emergency Landing**
-            if self.is_flying:
-                self.emergency()
-    
     def update_movement(self) -> None:
         self.velocity += self.acceleration
         
@@ -975,8 +1119,10 @@ class UrsinaAdapter():
             self.drone_camera.rotation_x = 10  # Prevent pitch tilting
             self.drone_camera.rotation_z = 0  # Prevent roll tilting
 
-        self.update_meters()
-        
+        warning = self._check_battery_warnings()
+        if self.show_hud:
+            self.update_meters(warning)
+
     def enqueue_command(self, command_func, *args, **kwargs):
         self.command_queue.append((command_func, args, kwargs))
         if not self.is_moving:
@@ -1022,7 +1168,7 @@ class UrsinaAdapter():
             self.drone.animate_position(target_position, duration=duration, curve=curve.in_out_quad)
             # Ease the tilt back out before the move finishes.
             invoke(self._reset_tilt, delay=duration * 0.7)
-            invoke(self._motion_complete_callback, delay=duration)
+            self._motion_complete_seq = invoke(self._motion_complete_callback, delay=duration)
 
         self.enqueue_command(command)
 
@@ -1036,11 +1182,44 @@ class UrsinaAdapter():
         if self.first_person_view:
             # First-person view
             self.drone_camera.position = self.first_person_position
-            self.drone_camera.rotation = (0, 0, 0)
+            self.drone_camera.rotation = self.first_person_rotation
         else:
             # Third-person view
             self.drone_camera.position = self.third_person_position
             self.drone_camera.rotation = self.third_person_rotation
+
+    def reset_view(self) -> None:
+        """Restore the camera to its startup framing. Bound to the RESET_VIEW_KEY press.
+
+        EditorCamera lets the user orbit (right-drag), pan (middle-drag) and zoom
+        (scroll), and none of it is fully undone by the follow code - while landed
+        nothing touches the camera at all. So undo every piece here: rig offset, orbit
+        rotation, zoom (target_z *and* camera.z, which is only lerped toward it) and the
+        orthographic/fov state from EditorCamera's built-in shift+p shortcut. Doesn't
+        touch first_person_view, which is owned by the streamon/streamoff pairing.
+        """
+        if self.first_person_view:
+            self.drone_camera.position = self.first_person_position
+            self.drone_camera.rotation = self.first_person_rotation
+        else:
+            self.drone_camera.position = self.third_person_position
+            self.drone_camera.rotation = self.third_person_rotation
+
+        camera.orthographic = False
+        camera.position = self._default_camera_local_position
+        self.drone_camera.target_z = self._default_camera_target_z
+        camera.fov = self._default_camera_fov
+        self.drone_camera.target_fov = self._default_camera_fov
+
+        # Snap the follower so the view doesn't drift back over the next second
+        # (mirrors the per-frame logic in update_movement/_tick_impl).
+        if self.is_flying:
+            self.camera_holder.position = self.drone.position
+        else:
+            self.camera_holder.position = self.drone.position + self.grounded_camera_offset
+        self.camera_holder.rotation = (0, self.drone.rotation_y, 0)
+
+        print("Tello Simulator: View reset.")
     
     def send_rc_control(self, left_right_velocity_ms: float, forward_backward_velocity_ms: float, up_down_velocity_ms: float, yaw_velocity_ms: float):
         # Store the stick values atomically; tick() applies them in the body
@@ -1105,7 +1284,7 @@ class UrsinaAdapter():
 
             self.drone.animate_position(target_position, duration=duration, curve=curve.in_out_cubic)
             self.drone.animate('rotation_y', target_yaw, duration=duration, curve=curve.in_out_cubic)
-            invoke(self._motion_complete_callback, delay=duration)
+            self._motion_complete_seq = invoke(self._motion_complete_callback, delay=duration)
 
         self.enqueue_command(command)
 
@@ -1149,14 +1328,43 @@ class UrsinaAdapter():
             print("Tello Simulator: Already in air.")
     
     def _motion_complete_callback(self):
+        # This fired, so the sequence has run — drop the stale reference.
+        self._motion_complete_seq = None
         self.is_moving = False
         self._execute_next_command()
         
+    def _deferred_land_callback(self) -> None:
+        # The scheduled retry has fired, so the Sequence is consumed — drop the
+        # stale reference before re-entering land(). Clearing it here rather
+        # than at the top of land() is what lets land() distinguish "a retry is
+        # already pending" from "this call *is* the retry".
+        self._deferred_land_seq = None
+        self.land()
+
     def land(self) -> None:
         if self.is_moving:
+            if self._deferred_land_seq is not None:
+                # A retry is already pending. Overwriting the reference here
+                # would orphan that Sequence without cancelling it: it stays
+                # scheduled, but emergency() (and the next land()) can only see
+                # the newest one. Each orphan re-arms itself on every tick it
+                # fires, so N land() calls during one move would leave N
+                # independent retry chains alive past the emergency that was
+                # supposed to cancel them. land() has three unserialized entry
+                # points — the command queue, the LAND_KEY handler, and end() —
+                # so overlapping calls are reachable.
+                print("Tello Simulator: Landing already deferred until movement completes.")
+                return
             print("Tello Simulator: Movement in progress. Deferring landing...")
-            invoke(self.land, delay=1.0)
+            self._deferred_land_seq = invoke(self._deferred_land_callback, delay=1.0)
             return
+        # Not moving, so this call lands now and any retry still pending from an
+        # earlier land() is redundant — cancel it rather than let it fire into an
+        # already-grounded drone. No-op when this call came from the retry
+        # itself, which cleared the reference before re-entering.
+        if self._deferred_land_seq is not None:
+            self._deferred_land_seq.kill()
+            self._deferred_land_seq = None
         if self.is_flying:
             print("Tello Simulator: Drone landing...")
             current_altitude = self.drone.y
@@ -1170,7 +1378,36 @@ class UrsinaAdapter():
     def emergency(self) -> None:
         if self.is_flying:
             print(" Emergency! Stopping all motors and descending immediately!")
-            # Stop movement 
+            # Cancel any in-flight animated move (animate_position runs on
+            # Ursina's animation system, independent of the is_flying tick gate)
+            # and drop queued/held commands so the drone can't keep travelling —
+            # or start the next command — while it descends.
+            for animation in list(self.drone.animations):
+                animation.kill()
+            # invoke(self._motion_complete_callback, ...) returns a standalone
+            # Sequence that is NOT in self.drone.animations, so the loop above
+            # never cancels it. Kill it explicitly, or a delayed callback could
+            # fire after a later takeoff/move and flip is_moving / launch the
+            # next queued command mid-flight.
+            if self._motion_complete_seq is not None:
+                self._motion_complete_seq.kill()
+                self._motion_complete_seq = None
+            # A deferred land retry (invoke(self._deferred_land_callback,
+            # delay=1.0), scheduled while a move was in progress) is likewise a
+            # standalone Sequence outside self.drone.animations. Kill it too, or
+            # it could fire after a later takeoff/move and begin descending
+            # mid-flight. land() dedupes, so cancelling this one reference
+            # cancels every pending retry.
+            if self._deferred_land_seq is not None:
+                self._deferred_land_seq.kill()
+                self._deferred_land_seq = None
+            self.command_queue.clear()
+            self.is_moving = False
+            self.bezier_mode = False
+            self.rc_control = None
+            self._reset_tilt()
+
+            # Stop movement
             self.velocity = Vec3(0, 0, 0)
             self.acceleration = Vec3(0, 0, 0)
 
@@ -1255,7 +1492,13 @@ class UrsinaAdapter():
         if not self.is_connected:
             return
 
-        self.update_takeoff_indicator()
+        # Sample telemetry before any of the early returns below: the drone is
+        # still descending on the landing animation after is_flying clears, and
+        # a grounded drone has to read 0 rather than hold the last airborne value.
+        self._sample_vertical_speed()
+
+        if self.show_hud:
+            self.update_takeoff_indicator()
 
         # Keep the gate editor hidden while streaming (the FPV grabs the whole frame).
         self._update_editor_visibility()
@@ -1278,7 +1521,7 @@ class UrsinaAdapter():
                 print(f"[FPV] OpenGL read error: {e}")
         
         if not self.is_flying:
-            self.camera_holder.position = self.drone.position + Vec3(0, 3, -7)
+            self.camera_holder.position = self.drone.position + self.grounded_camera_offset
             
             return
         
