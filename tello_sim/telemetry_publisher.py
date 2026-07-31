@@ -55,13 +55,41 @@ class TelemetryPublisher:
         self._port = port
         self._subscribers: dict[tuple, float] = {}  # addr -> last-seen time
         self._lock = threading.Lock()
+        # Deliberately a plain bool rather than a threading.Event, and
+        # deliberately not guarded by _lock: attribute load/store is atomic,
+        # and nothing here depends on the transition being observed promptly.
+        # stop() closes the socket, and that is what actually wakes _listen
+        # out of its blocking recvfrom (see the OSError break below); the flag
+        # only stops the next loop iteration. Both threads are daemons, so a
+        # late read cannot outlive the process. Taking _lock in the loop
+        # conditions would only add contention with _publish_loop, which
+        # already holds it while pruning subscribers.
         self._running = False
         self._socket = None
 
     def start(self) -> None:
-        self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._socket.bind(("localhost", self._port))
+        # Idempotent. Without this guard a second start() reassigns
+        # self._socket before bind() can reject the already-taken port, which
+        # points _listen at a fresh unbound socket: it binds an ephemeral port
+        # on its next recvfrom and the publisher goes permanently deaf on
+        # self._port, while the original socket leaks (stop() only closes
+        # whatever self._socket happens to hold).
+        if self._running:
+            logger.warning("[Telemetry] Already publishing on port %s; "
+                           "ignoring duplicate start()", self._port)
+            return
+
+        # Bind a local socket and only hand it to self._socket once the bind
+        # has succeeded, so a failed start() leaves the object as it found it.
+        # TelloDroneSim.start() rolls back on OSError and relies on that.
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind(("localhost", self._port))
+        except OSError:
+            sock.close()
+            raise
+        self._socket = sock
         self._running = True
 
         listen_thread = threading.Thread(target=self._listen, daemon=True)
