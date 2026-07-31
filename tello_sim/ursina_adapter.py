@@ -153,6 +153,10 @@ class UrsinaAdapter():
         self.frame_count = 0
         self.latest_frame = None
         self.last_altitude = self.altitude
+        # Vertical speed (km/h) sampled once per tick by _sample_vertical_speed().
+        # get_speed_y() only reads it, so the reading no longer depends on how
+        # often the API is polled or on whether the HUD is drawn.
+        self._vertical_speed_kmh = 0
         self.bezier_path = []
         self.bezier_duration = 0
         self.bezier_start_time = None
@@ -355,8 +359,15 @@ class UrsinaAdapter():
         )
 
         self.first_person_view = False
-        # Create a separate entity to hold the camera
-        self.camera_holder = Entity(position=self.drone.position, rotation=self.drone.rotation)   
+        self.grounded_camera_offset = Vec3(0, 3, -7)  # holder offset while landed
+        # Create a separate entity to hold the camera. Seed it with the grounded
+        # offset the tick applies once connected, so the pre-connect framing is
+        # the same one reset_view() restores — otherwise pressing RESET_VIEW_KEY
+        # before connecting shifts the view instead of leaving it alone.
+        self.camera_holder = Entity(
+            position=self.drone.position + self.grounded_camera_offset,
+            rotation=self.drone.rotation,
+        )
 
         self.drone_camera = EditorCamera()
         self.drone_camera.parent = self.camera_holder
@@ -364,7 +375,6 @@ class UrsinaAdapter():
         self.third_person_rotation = (10, 0, 0)
         self.first_person_position = (0, 0.5, 22)
         self.first_person_rotation = (0, 0, 0)
-        self.grounded_camera_offset = Vec3(0, 3, -7)  # holder offset while landed
         self.drone_camera.position = self.third_person_position
         self.drone_camera.rotation = self.third_person_rotation
 
@@ -917,17 +927,30 @@ class UrsinaAdapter():
         # as get_speed_y's altitude), then m/s -> km/h.
         return int(self.measured_velocity.x * 0.1 * 3.6)
 
-    def get_speed_y(self) -> int:
+    def _sample_vertical_speed(self) -> None:
+        """Advance the vertical-speed sample. Called once per tick.
+
+        Unlike speed X/Z, which read the per-frame `measured_velocity`, vertical
+        speed is a differential over `last_altitude`/`last_time`. Sampling has to
+        happen on the tick rather than inside get_speed_y(): if the getter
+        advanced the state, the value would be the *average* since whenever the
+        API last happened to poll, not the current speed. That used to be masked
+        by update_meters() calling the getter every frame, which SHOW_HUD=False
+        no longer does.
+        """
         current_time = time()
         elapsed_time = current_time - self.last_time
+        if elapsed_time <= 0:
+            return
 
-        if elapsed_time > 0:  
-            current_altitude = (self.drone.y * 0.1) - 0.3
-            vertical_speed = (current_altitude - self.last_altitude) / elapsed_time  
-            self.last_altitude = current_altitude
-            self.last_time = current_time
-            return int(vertical_speed * 3.6)  
-        return 0
+        current_altitude = (self.drone.y * 0.1) - 0.3
+        vertical_speed = (current_altitude - self.last_altitude) / elapsed_time
+        self.last_altitude = current_altitude
+        self.last_time = current_time
+        self._vertical_speed_kmh = int(vertical_speed * 3.6)
+
+    def get_speed_y(self) -> int:
+        return self._vertical_speed_kmh
 
     def get_speed_z(self) -> int:
         return int(self.measured_velocity.z * 0.1 * 3.6)
@@ -1468,6 +1491,11 @@ class UrsinaAdapter():
 
         if not self.is_connected:
             return
+
+        # Sample telemetry before any of the early returns below: the drone is
+        # still descending on the landing animation after is_flying clears, and
+        # a grounded drone has to read 0 rather than hold the last airborne value.
+        self._sample_vertical_speed()
 
         if self.show_hud:
             self.update_takeoff_indicator()
