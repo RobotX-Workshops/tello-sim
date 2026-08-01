@@ -75,21 +75,53 @@ To run the simulation, run the following command:
 python tello_sim/run_sim.py
 ```
 
+Leave it running. The examples connect to it, and `tello.connect()` fails with
+an explanatory error if the simulator is not up.
+
 You can try running some of the [examples](./examples) to see how the simulation works. The examples are located in the `examples` folder.
 
-Or use the [client](./tello_sim_client.py) class to interact with the simulation server. `tello_sim_client.py` lives in the repo root; the simulator server code lives in the `tello_sim` folder.
+## The two clients
+
+The simulator server code lives in the `tello_sim` folder. The client side is
+three modules in the repo root:
+
+| Module | Class | What it is |
+| --- | --- | --- |
+| [tello_sim_client.py](./tello_sim_client.py) | `TelloSimClient` | The drone. Every method mirrors the real DJI Tello / djitellopy API, so a script written against it also runs on real hardware. |
+| [simulator_client.py](./simulator_client.py) | `SimulatorClient` | The simulator. Ground-truth position, the telemetry stream, motion-completion polling — things a real drone cannot do. |
+| [sim_connection.py](./sim_connection.py) | `SimConnection` | Shared TCP plumbing. You do not normally use this directly. |
+
+They are independent objects, so a privileged call is always visible as `sim.`
+at the call site:
+
+```python
+from tello_sim_client import TelloSimClient
+from simulator_client import SimulatorClient
+
+tello = TelloSimClient()    # what a real Tello can do
+sim = SimulatorClient()     # what only a simulator can do
+
+tello.connect()
+tello.takeoff()
+tello.move_forward(50)
+sim.wait_until_motion_complete()
+print(sim.get_position())
+tello.land()
+```
+
+If you only ever touch `tello`, your script is portable to a real Tello.
 
 ## Position & telemetry API
 
-The simulator exposes the drone's position and state two ways — poll it on
+`SimulatorClient` exposes the drone's position and state two ways — poll it on
 demand, or subscribe to a push stream:
 
 - **Poll (TCP port 9999):** the commands `get_position` and `get_state` return
   JSON. Via the client:
 
   ```python
-  tello.get_position()  # {'x': -1.54, 'y': 0.2, 'z': 0.5, 'yaw': 0.0}
-  tello.get_state()     # position + pitch/roll/speeds/battery/flying/time
+  sim.get_position()  # {'x': -1.54, 'y': 0.2, 'z': 0.5, 'yaw': 0.0}
+  sim.get_state()     # position + pitch/roll/speeds/battery/flying/time
   ```
 
 - **Subscribe (UDP port 9998):** send the datagram `subscribe` and the
@@ -97,9 +129,9 @@ demand, or subscribe to a push stream:
   (or stop resubscribing for 10 s). Via the client:
 
   ```python
-  tello.subscribe_state(lambda state: print(state["x"], state["z"]))
+  sim.subscribe_state(lambda state: print(state["x"], state["z"]))
   ...
-  tello.unsubscribe_state()
+  sim.unsubscribe_state()
   ```
 
 `x`/`z` are metres in the simulator's world frame, `y` is height above the

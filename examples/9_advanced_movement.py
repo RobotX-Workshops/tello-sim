@@ -1,6 +1,7 @@
 # Not verified working on normal Tello!
 
 from tello_sim_client import TelloSimClient
+from simulator_client import SimulatorClient
 
 
 import time
@@ -9,6 +10,10 @@ ROTATION_DEGREES = 90
 
 # Create a Tello instance
 tello = TelloSimClient()
+
+# wait_until_motion_complete() is a simulator-only helper — a real Tello
+# blocks inside the move command itself — so it lives on SimulatorClient.
+sim = SimulatorClient()
 
 # Connect to Tello
 tello.connect()
@@ -33,9 +38,9 @@ tello.takeoff()
 pause()
 
 tello.curve_xyz_speed(100, 0, 0, 200, 200, 0, 20)
-tello.wait_until_motion_complete()# Use this instead of pause for longer duration curve_xyz_speed/go_xyz_speed,to prevent break in animation.
+sim.wait_until_motion_complete()# Use this instead of pause for longer duration curve_xyz_speed/go_xyz_speed,to prevent break in animation.
 #tello.go_xyz_speed(100, 0, 0, 10)
-#tello.wait_until_motion_complete() 
+#sim.wait_until_motion_complete()
 # Should go backwards 1m at 10 cm/s
 #tello.go_xyz_speed(-100, 0, 0, 10)
 

@@ -15,7 +15,7 @@ Pure-Python drone simulator. No ROS, no compiled packages, no monorepo.
 | Fact | Value |
 | --- | --- |
 | Package | `tello_sim/` |
-| Client | `tello_sim_client.py` (repo root) |
+| Client | `tello_sim_client.py`, `simulator_client.py`, `sim_connection.py` (repo root) |
 | Examples | `examples/` |
 | Interpreter | `./venv/bin/python` (Python 3.13) |
 | Runtime deps | `requirements.txt` — ursina, PyOpenGL, numpy, opencv-python |
@@ -51,14 +51,18 @@ test, loosening a lint rule, or disabling a check — fix the cause.
 
 ```bash
 # 1. Syntax / import-time integrity across everything we ship.
-./venv/bin/python -m compileall -q tello_sim tello_sim_client.py examples
+./venv/bin/python -m compileall -q \
+  tello_sim tello_sim_client.py simulator_client.py sim_connection.py examples
 
 # 2. Lint. No repo config, so ruff uses its defaults. The shipped tree
 #    is NOT ruff-clean (see the baseline table below), so a whole-tree
 #    run reports pre-existing findings. Gate on your diff, not the tree:
 ruff check --output-format=concise $(git diff --name-only origin/main -- '*.py')
-#    A whole-tree `ruff check tello_sim tello_sim_client.py examples` is
-#    still useful to eyeball, but read it against the baseline below.
+#    NOTE: `git diff --name-only` does not list *untracked* files, so a new
+#    module you have not `git add`ed yet is silently skipped. If your change
+#    adds files, `git add` them first or pass them to ruff explicitly.
+#    A whole-tree `ruff check tello_sim *.py examples` is still useful to
+#    eyeball, but read it against the baseline below.
 
 # 3. Targeted runtime check — only for the modules you touched, and only
 #    those that import cleanly headless (ursina opens a window). Derive
