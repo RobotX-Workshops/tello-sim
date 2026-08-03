@@ -1,7 +1,6 @@
 import os
 import json
 import logging
-from PIL import Image
 from OpenGL.GL import glReadPixels, GL_RGBA, GL_UNSIGNED_BYTE
 import numpy as np
 from typing import Literal
@@ -1508,14 +1507,22 @@ class UrsinaAdapter():
             try:
                 pixel_data = glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE)
                 if pixel_data:
-                    image = Image.frombytes("RGBA", (width, height), pixel_data) # type: ignore
-                    image = image.transpose(Image.FLIP_TOP_BOTTOM) # type: ignore
-                    frame = cv2.cvtColor(np.array(image), cv2.COLOR_RGBA2BGR)
+                    # glReadPixels returns rows bottom-to-top (OpenGL's origin is
+                    # bottom-left), so the framebuffer has to be flipped vertically.
+                    # Wrap the raw bytes as an array (a zero-copy view) rather than
+                    # routing through PIL: Image.frombytes + transpose + np.array
+                    # allocated three extra full-framebuffer copies on every
+                    # streamed frame. cvtColor and cv2.flip each return one fresh
+                    # array, so this path makes two allocations instead of four and
+                    # drops the (undeclared, transitive) Pillow dependency.
+                    arr = np.frombuffer(pixel_data, np.uint8).reshape(height, width, 4)  # type: ignore
+                    frame = cv2.cvtColor(arr, cv2.COLOR_RGBA2BGR)
+                    frame = cv2.flip(frame, 0)
 
-                    # cvtColor already returns a freshly allocated array that
-                    # nothing else mutates (readers re-encode/convert into new
-                    # arrays), so store it directly. An extra .copy() here would
-                    # duplicate the whole framebuffer on every streamed frame.
+                    # cv2.flip returns a freshly allocated array that nothing else
+                    # mutates (readers re-encode/convert into new arrays), so store
+                    # it directly. An extra .copy() here would duplicate the whole
+                    # framebuffer on every streamed frame.
                     self.latest_frame = frame
             except Exception as e:
                 print(f"[FPV] OpenGL read error: {e}")
