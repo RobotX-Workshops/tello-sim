@@ -444,6 +444,12 @@ class UrsinaAdapter():
         Saved specs are merged *onto* DEFAULT_PEOPLE by name rather than
         replacing the list, so a hand-edited or stale file can neither drop a
         person from the scene nor introduce one with no model to load.
+
+        Overrides are validated individually: build_people() runs inside
+        __init__ with no try around it, so a non-numeric coordinate would stop
+        the simulator from starting at all. Values are clamped to the same
+        ranges queue_scene_edit enforces, so a hand-edited position can't land
+        somewhere the editor's sliders are unable to represent.
         """
         specs = [dict(p) for p in DEFAULT_PEOPLE]
         path = self._people_config_path()
@@ -463,9 +469,13 @@ class UrsinaAdapter():
                 if override:
                     # model/scale stay whatever the defaults say — only the
                     # placement is editable.
-                    for field in PERSON_FIELD_RANGES:
-                        if field in override:
-                            spec[field] = override[field]
+                    for field, (low, high) in PERSON_FIELD_RANGES.items():
+                        value = override.get(field)
+                        # bool is a subclass of int, so True would otherwise
+                        # silently become 1.0.
+                        if isinstance(value, bool) or not isinstance(value, (int, float)):
+                            continue
+                        spec[field] = round(_clamp(float(value), low, high), 2)
         except Exception as e:
             print(f"[People] Failed to load {path}: {e}")
         return specs

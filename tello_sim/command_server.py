@@ -285,7 +285,7 @@ class CommandServer:
         # thread would be Panda3D scene-graph surgery off the render thread.
         elif data == "get_scene":
             conn.sendall(json.dumps(self._ursina_adapter.scene_snapshot()).encode())
-        elif data.startswith("set_gate ") or data.startswith("set_person "):
+        elif data.startswith(("set_gate ", "set_person ")):
             try:
                 command, target, field, value = data.split()
                 kind = 'gate' if command == "set_gate" else 'person'

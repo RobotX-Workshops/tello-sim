@@ -170,14 +170,26 @@ class SceneEditor:
     # --- connection ----------------------------------------------------------
     def _poll_connection(self) -> None:
         """Wait for the simulator, then load the scene. Also recovers if it restarts."""
-        if not self.connected:
-            if self.client.is_simulator_running() and self._load_scene():
-                self.connected = True
-            else:
-                self.status.set(
-                    f'Waiting for the simulator on {self.client.host}:{self.client.port}...')
-                self.save_button.state(['disabled'])
-        self.root.after(RECONNECT_INTERVAL_MS, self._poll_connection)
+        try:
+            if not self.connected:
+                if self.client.is_simulator_running() and self._load_scene():
+                    self.connected = True
+                else:
+                    self.status.set(
+                        f'Waiting for the simulator on {self.client.host}:{self.client.port}...')
+                    self.save_button.state(['disabled'])
+        except (OSError, KeyError, TypeError, ValueError) as e:
+            # A simulator that dies mid-request raises straight through
+            # SimConnection (it only catches ConnectionRefusedError), and a
+            # truncated snapshot fails the lookups in _load_scene. Either way
+            # this is transient — report it and let the next tick retry.
+            self.connected = False
+            self.status.set(f'Reconnecting after: {e}')
+        finally:
+            # Always reschedule. Tkinter drops a callback that raises, so a
+            # single bad poll would otherwise leave a live window that never
+            # reconnects again.
+            self.root.after(RECONNECT_INTERVAL_MS, self._poll_connection)
 
     def _load_scene(self) -> bool:
         scene = self.client.get_scene()
@@ -209,23 +221,46 @@ class SceneEditor:
 
     def _flush(self) -> None:
         """Send the pending edits, at most one batch per FLUSH_INTERVAL_MS."""
-        if self._dirty and self.connected:
-            pending, self._dirty = self._dirty, {}
-            for (kind, target, field), value in pending.items():
-                if kind == 'gate':
-                    reply = self.client.set_gate(target, field, value)
+        try:
+            if self._dirty and self.connected:
+                pending, self._dirty = self._dirty, {}
+                items = list(pending.items())
+                for position, ((kind, target, field), value) in enumerate(items):
+                    try:
+                        if kind == 'gate':
+                            reply = self.client.set_gate(target, field, value)
+                        else:
+                            reply = self.client.set_person(target, field, value)
+                    except OSError as e:
+                        self._requeue(items[position:])
+                        self._disconnected()
+                        self.status.set(f'Lost the simulator: {e}')
+                        break
+                    if reply == 'N/A':
+                        # SimConnection's "unreachable" sentinel.
+                        self._requeue(items[position:])
+                        self._disconnected()
+                        break
+                    if reply.startswith('error'):
+                        self._requeue(items[position:])
+                        self.status.set(reply)
+                        break
                 else:
-                    reply = self.client.set_person(target, field, value)
-                if reply == 'N/A':
-                    # SimConnection's "unreachable" sentinel.
-                    self._disconnected()
-                    break
-                if reply.startswith('error'):
-                    self.status.set(reply)
-                    break
-            else:
-                self.status.set('Connected.')
-        self.root.after(FLUSH_INTERVAL_MS, self._flush)
+                    self.status.set('Connected.')
+        finally:
+            # As in _poll_connection: reschedule unconditionally, or one bad
+            # batch stops the editor sending anything ever again.
+            self.root.after(FLUSH_INTERVAL_MS, self._flush)
+
+    def _requeue(self, unsent) -> None:
+        """Put edits that were never sent back on the queue.
+
+        Without this, releasing a slider during a transient error leaves the
+        simulator holding an intermediate value while the slider shows the
+        final one. setdefault so a newer edit for the same key still wins.
+        """
+        for key, value in unsent:
+            self._dirty.setdefault(key, value)
 
     def _save(self) -> None:
         reply = self.client.save_scene()
