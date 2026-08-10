@@ -23,7 +23,8 @@ def build_position(adapter) -> dict:
     above the ground, matching get_height's convention: the drone entity
     rests at y = 2.6 world units when landed, and the inherited 0.3 m
     offset makes a landed drone read -0.04 m (approximately zero).
-    Yaw is degrees, normalised to (-180, 180].
+    Yaw is degrees, normalised to [-180, 180) before rounding to one decimal
+    place (raw_yaw of 180 wraps to -180).
 
     Split out from build_state so the get_position command can answer with
     only the pose, instead of computing battery drain, all three speeds and
