@@ -15,15 +15,19 @@ PUBLISH_HZ = 10
 SUBSCRIBER_TTL_S = 10.0
 
 
-def build_state(adapter) -> dict:
-    """Snapshot the drone state as a plain dict.
+def build_position(adapter) -> dict:
+    """Snapshot just the drone's pose as a plain dict: {x, y, z, yaw}.
 
     Position is in metres in the simulator's world frame (1 world unit =
     0.1 m, the same scale get_height/get_speed_* already use); y is height
     above the ground, matching get_height's convention: the drone entity
     rests at y = 2.6 world units when landed, and the inherited 0.3 m
     offset makes a landed drone read -0.04 m (approximately zero).
-    Angles are degrees.
+    Yaw is degrees, normalised to (-180, 180].
+
+    Split out from build_state so the get_position command can answer with
+    only the pose, instead of computing battery drain, all three speeds and
+    the attitude on every poll and then discarding them.
     """
     raw_yaw = adapter.drone.rotation_y
     return {
@@ -31,6 +35,17 @@ def build_state(adapter) -> dict:
         "y": round((adapter.drone.y * 0.1) - 0.3, 3),
         "z": round(adapter.drone.z * 0.1, 3),
         "yaw": round(((raw_yaw + 180) % 360) - 180, 1),
+    }
+
+
+def build_state(adapter) -> dict:
+    """Snapshot the full drone state as a plain dict.
+
+    Pose fields (x/y/z/yaw) come from build_position(); see it for the
+    coordinate conventions. Angles are degrees.
+    """
+    return {
+        **build_position(adapter),
         "pitch": adapter.get_pitch(),
         "roll": adapter.get_roll(),
         "speed_x": adapter.get_speed_x(),
