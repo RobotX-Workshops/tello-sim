@@ -7,7 +7,7 @@ from ursina import * # type: ignore
 from time import time
 import cv2
 from ursina_adapter import UrsinaAdapter
-from telemetry_publisher import build_state
+from telemetry_publisher import build_position, build_state
 
 logger = logging.getLogger(__name__)
 
@@ -268,8 +268,7 @@ class CommandServer:
             }
             conn.sendall(str(attitude).encode())
         elif data == "get_position":
-            state = build_state(self._ursina_adapter)
-            position = {key: state[key] for key in ("x", "y", "z", "yaw")}
+            position = build_position(self._ursina_adapter)
             conn.sendall(json.dumps(position).encode())
         elif data == "get_state":
             conn.sendall(json.dumps(build_state(self._ursina_adapter)).encode())
