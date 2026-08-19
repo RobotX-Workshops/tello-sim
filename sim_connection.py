@@ -84,20 +84,26 @@ class SimConnection:
                     print("[Debug] No frame available from simulator")
                     return None
 
-                # Receive the frame data
-                frame_data = b''
+                # Receive the frame data. Accumulate into a list and join once
+                # at the end rather than `frame_data += chunk`: bytes are
+                # immutable, so `+=` reallocates and recopies the whole buffer
+                # every chunk, making reassembly O(n^2) in the frame size. A
+                # streamed PNG runs to hundreds of KB pulled every frame, so the
+                # copying is a real recurring cost. request() above already uses
+                # this list-then-join pattern for the same reason.
+                chunks = []
                 bytes_received = 0
                 while bytes_received < frame_size:
                     chunk = s.recv(min(4096, frame_size - bytes_received))
                     if not chunk:
                         break
-                    frame_data += chunk
+                    chunks.append(chunk)
                     bytes_received += len(chunk)
 
-                if len(frame_data) != frame_size:
+                if bytes_received != frame_size:
                     print("[Error] Incomplete frame data")
                     return None
-                return frame_data
+                return b''.join(chunks)
 
         except ConnectionRefusedError:
             print(f"[Error] Unable to connect to the simulation at {self.host}:{self.port}")
