@@ -80,6 +80,47 @@ an explanatory error if the simulator is not up.
 
 You can try running some of the [examples](./examples) to see how the simulation works. The examples are located in the `examples` folder.
 
+## Scene editor
+
+The gates and the pedestrians are positioned from a separate window, so nothing
+is drawn over the 3D view — the FPV video path captures the whole framebuffer,
+and any on-screen panel would be burned into your photos and recordings.
+
+Start both windows at once:
+
+```bash
+python run.py
+```
+
+Or run them separately (the editor waits for the simulator, so either order works):
+
+```bash
+python tello_sim/run_sim.py     # the 3D window
+python tools/scene_editor.py    # the controls window
+```
+
+`run.py --no-editor` starts the simulator alone; `run.py --editor-only` attaches
+the editor to a simulator that is already running.
+
+The editor has two tabs:
+
+| Tab | Controls |
+| --- | --- |
+| **Gates** | Pick a gate, then set its X, Z, diameter, height above the ground, and heading. |
+| **People** | Pick a pedestrian, then set its X, Y, Z and heading. |
+
+Edits apply live in the 3D window. **Save** writes the layout to
+[tello_sim/gates.json](./tello_sim/gates.json) and
+[tello_sim/people.json](./tello_sim/people.json), which are loaded on the next
+start; delete either file to go back to the built-in defaults.
+
+The editor is a Tkinter app and needs Tk available to your Python. If
+`import tkinter` fails on macOS with Homebrew Python, install the matching Tk
+package — for example `brew install python-tk@3.13`.
+
+Scripts can drive the same thing through `SimulatorClient.get_scene()`,
+`set_gate()`, `set_person()` and `save_scene()`.
+
 ## The two clients
 
 The simulator server code lives in the `tello_sim` folder. The client side is

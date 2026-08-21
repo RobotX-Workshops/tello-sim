@@ -279,6 +279,36 @@ class CommandServer:
                 state = "unhealthy"
             conn.sendall(state.encode())
 
+        # --- scene editing (tools/scene_editor.py) ---------------------------
+        # These only ever queue an edit; the adapter applies it on the main
+        # thread next tick, because rebuilding a gate mesh from this socket
+        # thread would be Panda3D scene-graph surgery off the render thread.
+        elif data == "get_scene":
+            conn.sendall(json.dumps(self._ursina_adapter.scene_snapshot()).encode())
+        elif data.startswith(("set_gate ", "set_person ")):
+            try:
+                command, target, field, value = data.split()
+                kind = 'gate' if command == "set_gate" else 'person'
+                self._ursina_adapter.queue_scene_edit(
+                    kind, int(target) if kind == 'gate' else target, field, float(value))
+                conn.sendall(b"ok")
+            except ValueError as e:
+                # Covers both a malformed command (wrong arg count, non-numeric
+                # value) and queue_scene_edit's own validation failures.
+                conn.sendall(f"error: {e}".encode())
+        elif data == "save_scene":
+            # Both are attempted even if the first fails, so one unwritable
+            # file doesn't silently discard the other half of the layout.
+            gates_ok = self._ursina_adapter.save_gate_specs()
+            people_ok = self._ursina_adapter.save_person_specs()
+            if gates_ok and people_ok:
+                conn.sendall(b"ok")
+            else:
+                failed = ", ".join(
+                    name for name, ok in (("gates.json", gates_ok), ("people.json", people_ok))
+                    if not ok)
+                conn.sendall(f"error: could not write {failed}".encode())
+
         elif data == "get_latest_frame":
             # Send frame data directly over TCP instead of using filesystem.
             # If the update loop stopped ticking, report "no frame" rather

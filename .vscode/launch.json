@@ -14,13 +14,48 @@
             "env": {
                 "PYTHONPATH": "${workspaceFolder}"
             }
-        }, 
+        },
+        {
+            "name": "Run Scene Editor",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/scene_editor.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "Run Simulator + Scene Editor",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/run.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
         {
             "name": "Python Debugger: Current File",
             "type": "debugpy",
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal"
+        }
+    ],
+    // "Run Simulator + Scene Editor" launches the editor as a child process, so
+    // breakpoints only bind in the simulator. Use this compound to debug both.
+    // Start order doesn't matter: the editor polls until the simulator answers.
+    "compounds": [
+        {
+            "name": "Sim + Scene Editor (debug both)",
+            "configurations": [
+                "Run Tello Simulator",
+                "Run Scene Editor"
+            ],
+            "stopAll": true
         }
     ]
 }

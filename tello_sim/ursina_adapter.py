@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import threading
 from OpenGL.GL import glReadPixels, GL_RGBA, GL_UNSIGNED_BYTE
 import numpy as np
 from typing import Literal
@@ -27,9 +28,6 @@ from ursina import (
     raycast,
     lerp,
     destroy,
-    Button,
-    Slider,
-    WindowPanel,
 )
 from time import sleep, time
 import time as time_module  # ursina publishes the per-frame delta as time.dt on the module
@@ -62,7 +60,6 @@ SHOW_HUD = False
 # Ursina reports modifier keys per side ('left shift'/'right shift' — see the
 # _input_name_changes map in ursina/main.py); a bare 'shift' event is never emitted, so
 # takeoff has to accept both.
-GATE_EDITOR_KEY = 'g'
 LAND_KEY = 'l'
 RESET_VIEW_KEY = 'v'
 TAKEOFF_KEYS = ('left shift', 'right shift')
@@ -95,6 +92,45 @@ DEFAULT_GATES = [
     {'color': 'blue',   'x': -15, 'z': 270, 'diameter_cm': 50, 'clearance_cm': 70, 'yaw': 0},
     {'color': 'violet', 'x': -15, 'z': 340, 'diameter_cm': 35, 'clearance_cm': 45, 'yaw': 0},
 ]
+
+# --- People ---------------------------------------------------------------------
+# The pedestrians scattered along the corridor. Unlike the rest of the scenery
+# (cars, barriers, street lights) these are repositionable at runtime from the
+# scene editor, so they live in a registry keyed by name rather than as one-off
+# attributes. `model`/`scale` are fixed; only x/y/z/yaw are editable and
+# persisted to people.json.
+DEFAULT_PEOPLE = [
+    {'name': 'business_man', 'model': 'entities/business_man.glb', 'scale': 7.3,
+     'x': 23, 'y': 12, 'z': 155, 'yaw': 55},
+    {'name': 'man', 'model': 'entities/bos_standing.glb', 'scale': 10.3,
+     'x': -83, 'y': 2.8, 'z': 165, 'yaw': 120},
+    {'name': 'police_man', 'model': 'entities/pig.glb', 'scale': 10.0,
+     'x': -35, 'y': 1.7, 'z': 230, 'yaw': -70},
+]
+
+# Bounds for the people position sliders. Wider than the gate ranges: the gates
+# sit in the flight corridor, but the people stand out on the verges (x = -83
+# through 23 by default) and need room to be moved further out.
+PERSON_X_RANGE = (-220.0, 40.0)
+PERSON_Y_RANGE = (0.0, 30.0)
+PERSON_Z_RANGE = (-70.0, 390.0)
+PERSON_YAW_RANGE = (-180.0, 180.0)
+
+# Editable fields, and the range each is clamped to. The scene editor reads
+# these bounds off the wire (get_scene) rather than duplicating them.
+GATE_FIELD_RANGES = {
+    'x': GATE_X_RANGE,
+    'z': GATE_Z_RANGE,
+    'diameter_cm': (MIN_GATE_DIAMETER_CM, MAX_GATE_DIAMETER_CM),
+    'clearance_cm': (MIN_GATE_CLEARANCE_CM, MAX_GATE_CLEARANCE_CM),
+    'yaw': GATE_YAW_RANGE,
+}
+PERSON_FIELD_RANGES = {
+    'x': PERSON_X_RANGE,
+    'y': PERSON_Y_RANGE,
+    'z': PERSON_Z_RANGE,
+    'yaw': PERSON_YAW_RANGE,
+}
 
 
 def _clamp(value: float, low: float, high: float) -> float:
@@ -161,6 +197,15 @@ class UrsinaAdapter():
         self.bezier_start_time = None
         self.bezier_mode = False
         self.show_hud = SHOW_HUD
+        # Scene edits arriving from the command server's socket thread, applied
+        # on the main thread by _apply_scene_edits(). Gate diameter changes
+        # destroy and rebuild a Pipe mesh, and Panda3D scene-graph surgery off
+        # the render thread is a crash risk — same reason send_rc_control()
+        # defers to _apply_rc_control(). Keyed by (kind, target, field) so a
+        # slider drag coalesces to its latest value instead of applying every
+        # intermediate one.
+        self._pending_scene_edits = {}
+        self._scene_edit_lock = threading.Lock()
 
         if self.show_hud:
             self.create_takeoff_indicator()
@@ -217,23 +262,11 @@ class UrsinaAdapter():
         )
         
     
-        self.business_man = Entity(
-            model='entities/business_man.glb',
-            scale=7.3,  
-            position=(23, 12, 155),  
-            rotation=(0, 55, 0),
-            collider='box',
-            cast_shadow=True
-        )
-        
-        self.man = Entity(
-            model='entities/bos_standing.glb',
-            scale=10.3,  
-            position=(-83, 2.8, 165),  
-            rotation=(0, 120, 0),
-            collider='box',
-            cast_shadow=True
-        )
+        # The pedestrians are built from a spec registry (people.json, falling
+        # back to DEFAULT_PEOPLE) so the scene editor can move them at runtime.
+        self.person_specs = self.load_person_specs()
+        self.people = {}
+        self.build_people()
 
         self.patch = Entity(
             model='entities/pipeline_construction_site.glb',
@@ -243,15 +276,6 @@ class UrsinaAdapter():
             cast_shadow=True
         )
         
-        self.police_man = Entity(
-            model='entities/pig.glb',
-            scale=10.0,  
-            position=(-35, 1.7, 230),  
-            rotation=(0, -70, 0),
-            collider='box',
-            cast_shadow=True
-        )
-
         self.light1 = Entity(
             model='entities/street_light.glb',
             scale=(4, 6.5, 5),  
@@ -409,7 +433,92 @@ class UrsinaAdapter():
 
         if self.show_hud:
             self.create_meters()
-        self.create_gate_editor()
+
+    # ----------------------------------------------------------------- people ---
+    def _people_config_path(self) -> str:
+        return os.path.join(os.path.dirname(__file__), 'people.json')
+
+    def load_person_specs(self) -> list[dict]:
+        """Load the people layout from people.json, falling back to the defaults.
+
+        Saved specs are merged *onto* DEFAULT_PEOPLE by name rather than
+        replacing the list, so a hand-edited or stale file can neither drop a
+        person from the scene nor introduce one with no model to load.
+
+        Overrides are validated individually: build_people() runs inside
+        __init__ with no try around it, so a non-numeric coordinate would stop
+        the simulator from starting at all. Values are clamped to the same
+        ranges queue_scene_edit enforces, so a hand-edited position can't land
+        somewhere the editor's sliders are unable to represent.
+        """
+        specs = [dict(p) for p in DEFAULT_PEOPLE]
+        path = self._people_config_path()
+        if not os.path.exists(path):
+            return specs
+        try:
+            with open(path) as f:
+                data = json.load(f)
+            required = {'name', 'x', 'y', 'z'}
+            if not (isinstance(data, list)
+                    and all(isinstance(p, dict) and required <= p.keys() for p in data)):
+                print(f"[People] {path} is invalid or missing required keys; using defaults")
+                return specs
+            saved = {p['name']: p for p in data}
+            for spec in specs:
+                override = saved.get(spec['name'])
+                if override:
+                    # model/scale stay whatever the defaults say — only the
+                    # placement is editable.
+                    for field, (low, high) in PERSON_FIELD_RANGES.items():
+                        value = override.get(field)
+                        # bool is a subclass of int, so True would otherwise
+                        # silently become 1.0.
+                        if isinstance(value, bool) or not isinstance(value, (int, float)):
+                            continue
+                        spec[field] = round(_clamp(float(value), low, high), 2)
+        except Exception as e:
+            print(f"[People] Failed to load {path}: {e}")
+        return specs
+
+    def save_person_specs(self) -> bool:
+        """Persist the current people layout to people.json. True if written."""
+        path = self._people_config_path()
+        try:
+            with open(path, 'w') as f:
+                json.dump(self.person_specs, f, indent=2)
+            print(f"[People] Saved layout to {path}")
+            return True
+        except Exception as e:
+            print(f"[People] Failed to save layout: {e}")
+            return False
+
+    def build_people(self) -> None:
+        """(Re)build every pedestrian entity from self.person_specs."""
+        for person in self.people.values():
+            destroy(person)
+        self.people = {
+            spec['name']: Entity(
+                model=spec['model'],
+                scale=spec['scale'],
+                position=(spec['x'], spec['y'], spec['z']),
+                rotation=(0, spec.get('yaw', 0), 0),
+                collider='box',
+                cast_shadow=True,
+            )
+            for spec in self.person_specs
+        }
+
+    def _person_spec(self, name: str) -> dict | None:
+        return next((s for s in self.person_specs if s['name'] == name), None)
+
+    def apply_person_spec(self, name: str) -> None:
+        """Push a person's spec onto its entity. Cheap — no mesh to rebuild."""
+        person = self.people.get(name)
+        spec = self._person_spec(name)
+        if person is None or spec is None:
+            return
+        person.position = (spec['x'], spec['y'], spec['z'])
+        person.rotation_y = spec.get('yaw', 0)
 
     # ------------------------------------------------------------------ gates ---
     def _gates_config_path(self) -> str:
@@ -431,15 +540,17 @@ class UrsinaAdapter():
                 print(f"[Gates] Failed to load {path}: {e}")
         return [dict(g) for g in DEFAULT_GATES]
 
-    def save_gate_specs(self) -> None:
-        """Persist the current gate layout to gates.json."""
+    def save_gate_specs(self) -> bool:
+        """Persist the current gate layout to gates.json. True if written."""
         path = self._gates_config_path()
         try:
             with open(path, 'w') as f:
                 json.dump(self.gate_specs, f, indent=2)
             print(f"[Gates] Saved layout to {path}")
+            return True
         except Exception as e:
             print(f"[Gates] Failed to save layout: {e}")
+            return False
 
     def build_gates(self) -> None:
         """(Re)build every gate entity from self.gate_specs."""
@@ -492,137 +603,98 @@ class UrsinaAdapter():
             cast_shadow=True,
         )
 
-    # ----------------------------------------------------------- gate editor ---
-    def create_gate_editor(self) -> None:
-        """Build the in-sim panel of sliders for editing gates at runtime."""
-        self.selected_gate_index = 0
-        self._suppress_slider_cb = False
+    # ---------------------------------------------------------- scene editor ---
+    # The editor itself is a separate process (tools/scene_editor.py) driving
+    # these methods over the command server. It used to be an in-window Ursina
+    # panel, but the FPV path grabs the whole framebuffer, so anything drawn on
+    # screen ended up burned into captured photos and video.
+    def scene_snapshot(self) -> dict:
+        """The editable scene, plus the bounds each field is clamped to.
 
-        self.gate_x_slider = Slider(*GATE_X_RANGE, default=0, text='X', dynamic=True)
-        self.gate_z_slider = Slider(*GATE_Z_RANGE, default=0, text='Z', dynamic=True)
-        self.gate_dia_slider = Slider(
-            MIN_GATE_DIAMETER_CM, MAX_GATE_DIAMETER_CM, default=MIN_GATE_DIAMETER_CM,
-            text='Diameter', dynamic=True)
-        self.gate_height_slider = Slider(
-            MIN_GATE_CLEARANCE_CM, MAX_GATE_CLEARANCE_CM, default=MIN_GATE_CLEARANCE_CM,
-            text='Height', dynamic=True)
-        self.gate_yaw_slider = Slider(*GATE_YAW_RANGE, default=0, text='Heading', dynamic=True)
+        The editor builds its sliders from `ranges` so the limits live in one
+        place (this module) rather than being duplicated client-side.
+        """
+        return {
+            'gates': [dict(spec) for spec in self.gate_specs],
+            'people': [dict(spec) for spec in self.person_specs],
+            'ranges': {
+                'gate': {field: list(bounds) for field, bounds in GATE_FIELD_RANGES.items()},
+                'person': {field: list(bounds) for field, bounds in PERSON_FIELD_RANGES.items()},
+            },
+        }
 
-        self.gate_x_slider.on_value_changed = self._on_gate_position_changed
-        self.gate_z_slider.on_value_changed = self._on_gate_position_changed
-        self.gate_height_slider.on_value_changed = self._on_gate_position_changed
-        self.gate_dia_slider.on_value_changed = self._on_gate_diameter_changed
-        self.gate_yaw_slider.on_value_changed = self._on_gate_yaw_changed
+    def queue_scene_edit(self, kind: str, target, field: str, value: float) -> None:
+        """Validate a scene edit and queue it for the next tick.
 
-        self.gate_select_button = Button(text='Gate: -', color=color.azure)
-        self.gate_select_button.on_click = self._select_next_gate
-        save_button = Button(text='Save to gates.json', color=color.green)
-        save_button.on_click = self.save_gate_specs
-
-        self.gate_editor_panel = WindowPanel(
-            title='Gate Editor',
-            content=(
-                self.gate_select_button,
-                self.gate_x_slider,
-                self.gate_z_slider,
-                self.gate_dia_slider,
-                self.gate_height_slider,
-                self.gate_yaw_slider,
-                save_button,
-            ),
-            popup=False,
-        )
-        # Anchor near the top-left and shrink so the whole panel stays on screen
-        # (Ursina's default sliders are wide). The panel is draggable by its title.
-        self.gate_editor_panel.scale *= 0.7
-        self.gate_editor_panel.x = -0.15
-        self.gate_editor_panel.y = 0.4
-        self.gate_editor_panel.enabled = False
-
-        self._sync_editor_to_gate()
-
-    def toggle_gate_editor(self) -> None:
-        """Show/hide the gate editor panel. Bound to the GATE_EDITOR_KEY press."""
-        if self.stream_active and not self.gate_editor_panel.enabled:
-            # Opening it now would burn the panel into the captured frames.
-            print("[Gate Editor] Not available while streaming. Run streamoff first.")
-            return
-
-        self.gate_editor_panel.enabled = not self.gate_editor_panel.enabled
-        if self.gate_editor_panel.enabled:
-            self._sync_editor_to_gate()
-            print("[Gate Editor] Opened. Press "
-                  f"'{GATE_EDITOR_KEY}' again to close.")
+        Raises ValueError for an unknown kind/target/field so the command
+        server can answer the client synchronously; the edit itself is applied
+        on the main thread by _apply_scene_edits().
+        """
+        if kind == 'gate':
+            ranges = GATE_FIELD_RANGES
+            if not isinstance(target, int) or not 0 <= target < len(self.gate_specs):
+                raise ValueError(f"no gate at index {target}")
+        elif kind == 'person':
+            ranges = PERSON_FIELD_RANGES
+            if self._person_spec(target) is None:
+                raise ValueError(f"no person named '{target}'")
         else:
-            print("[Gate Editor] Closed.")
+            raise ValueError(f"unknown target kind '{kind}'")
 
-    def _update_editor_visibility(self) -> None:
-        """Hide the gate editor while streaming so it isn't captured in the video."""
-        if self.stream_active and self.gate_editor_panel.enabled:
-            self.gate_editor_panel.enabled = False
+        if field not in ranges:
+            raise ValueError(f"{kind} has no editable field '{field}'")
+        clamped = round(_clamp(float(value), *ranges[field]), 2)
+        with self._scene_edit_lock:
+            self._pending_scene_edits[(kind, target, field)] = clamped
 
-    def _select_next_gate(self) -> None:
-        self.selected_gate_index = (self.selected_gate_index + 1) % len(self.gate_specs)
-        self._sync_editor_to_gate()
-
-    def _sync_editor_to_gate(self) -> None:
-        """Load the selected gate's values into the sliders (without firing edits)."""
-        spec = self.gate_specs[self.selected_gate_index]
-        self._suppress_slider_cb = True
-        self.gate_x_slider.value = _clamp(spec['x'], *GATE_X_RANGE)
-        self.gate_z_slider.value = _clamp(spec['z'], *GATE_Z_RANGE)
-        self.gate_dia_slider.value = _clamp(
-            spec['diameter_cm'], MIN_GATE_DIAMETER_CM, MAX_GATE_DIAMETER_CM)
-        self.gate_height_slider.value = _clamp(
-            spec['clearance_cm'], MIN_GATE_CLEARANCE_CM, MAX_GATE_CLEARANCE_CM)
-        self.gate_yaw_slider.value = _clamp(spec.get('yaw', 0), *GATE_YAW_RANGE)
-        self._suppress_slider_cb = False
-        self._refresh_editor_labels()
-
-    def _refresh_editor_labels(self) -> None:
-        i = self.selected_gate_index
-        spec = self.gate_specs[i]
-        self.gate_select_button.text = (
-            f"Gate {i + 1}/{len(self.gate_specs)}: {spec.get('color', '?')}")
-        self.gate_x_slider.label.text = f"X (side): {self.gate_x_slider.value:.1f}"
-        self.gate_z_slider.label.text = f"Z (along): {self.gate_z_slider.value:.1f}"
-        self.gate_dia_slider.label.text = f"Diameter: {self.gate_dia_slider.value:.0f} cm"
-        self.gate_height_slider.label.text = f"Height: {self.gate_height_slider.value:.0f} cm"
-        self.gate_yaw_slider.label.text = f"Heading: {self.gate_yaw_slider.value:.0f}°"
-
-    def _on_gate_position_changed(self) -> None:
-        if self._suppress_slider_cb:
+    def _apply_scene_edits(self) -> None:
+        """Apply queued scene edits. Main thread only; called every tick."""
+        if not self._pending_scene_edits:
             return
-        i = self.selected_gate_index
-        spec = self.gate_specs[i]
-        spec['x'] = round(self.gate_x_slider.value, 2)
-        spec['z'] = round(self.gate_z_slider.value, 2)
-        spec['clearance_cm'] = round(
-            max(self.gate_height_slider.value, MIN_GATE_CLEARANCE_CM), 1)
-        gate = self.gates[i]
+        with self._scene_edit_lock:
+            edits = self._pending_scene_edits
+            self._pending_scene_edits = {}
+
+        # Diameter is baked into the Pipe mesh, so those gates need a full
+        # rebuild; every other field is a transform write. Both are collected
+        # per gate and applied once, since a drag can queue several edits for
+        # the same gate in a single frame.
+        gates_dirty = set()
+        gates_to_rebuild = set()
+        people_dirty = set()
+        for (kind, target, field), value in edits.items():
+            if kind == 'gate':
+                if not 0 <= target < len(self.gate_specs):
+                    continue  # the layout changed under us; drop the stale edit
+                self.gate_specs[target][field] = value
+                gates_dirty.add(target)
+                if field == 'diameter_cm':
+                    gates_to_rebuild.add(target)
+            else:
+                spec = self._person_spec(target)
+                if spec is None:
+                    continue
+                spec[field] = value
+                people_dirty.add(target)
+
+        for index in gates_dirty:
+            if index in gates_to_rebuild:
+                # _make_gate_entity reads the whole spec, so this picks up any
+                # position/heading edits queued alongside the diameter.
+                self.rebuild_gate(index)
+            else:
+                self._apply_gate_spec(index)
+        for name in people_dirty:
+            self.apply_person_spec(name)
+
+    def _apply_gate_spec(self, index: int) -> None:
+        """Push a gate's spec onto its entity. Callers handle diameter changes."""
+        spec = self.gate_specs[index]
+        gate = self.gates[index]
         gate.x = spec['x']
         gate.z = spec['z']
         gate.y = self._gate_center_y(spec['diameter_cm'], spec['clearance_cm'])
-        self._refresh_editor_labels()
-
-    def _on_gate_diameter_changed(self) -> None:
-        if self._suppress_slider_cb:
-            return
-        i = self.selected_gate_index
-        spec = self.gate_specs[i]
-        spec['diameter_cm'] = round(
-            _clamp(self.gate_dia_slider.value, MIN_GATE_DIAMETER_CM, MAX_GATE_DIAMETER_CM), 1)
-        self.rebuild_gate(i)  # diameter changes the mesh, so rebuild it
-        self._refresh_editor_labels()
-
-    def _on_gate_yaw_changed(self) -> None:
-        if self._suppress_slider_cb:
-            return
-        i = self.selected_gate_index
-        spec = self.gate_specs[i]
-        spec['yaw'] = round(self.gate_yaw_slider.value, 1)
-        self.gates[i].rotation_y = spec['yaw']  # cheap: just re-orient the ring
-        self._refresh_editor_labels()
+        gate.rotation_y = spec.get('yaw', 0)
 
     def create_propeller(self, local_pos: tuple, radius: float = 15) -> Entity:
         """Build a translucent spinning-blur visual for one rotor.
@@ -667,15 +739,14 @@ class UrsinaAdapter():
             "=" * 70,
             f"  {TAKEOFF_LABEL:<12} take off",
             f"  {LAND_KEY:<12} land",
-            f"  {GATE_EDITOR_KEY:<12} open/close the gate editor",
             f"  {RESET_VIEW_KEY:<12} reset the camera view to its starting position",
             "",
             "  Drag with the right mouse button to orbit, the middle button to pan, and",
             f"  scroll to zoom. Press '{RESET_VIEW_KEY}' to put the view back where it started.",
             "",
-            "  The gate editor has sliders for position, diameter, height and",
-            "  heading, a button to cycle gates, and 'Save to gates.json' to",
-            "  persist the layout. It stays hidden while the video stream is on.",
+            "  Gates and people are edited from a separate window: run",
+            "  'python tools/scene_editor.py' (or start both with 'python run.py').",
+            "  Edits apply live; 'Save' writes gates.json and people.json.",
             "",
             "  Flight can also be driven over TCP on port 9999 (see examples/).",
         ]
@@ -691,9 +762,7 @@ class UrsinaAdapter():
 
     def handle_input(self, key: str) -> None:
         """Dispatch a key press from Ursina's global input hook."""
-        if key == GATE_EDITOR_KEY:
-            self.toggle_gate_editor()
-        elif key == RESET_VIEW_KEY:
+        if key == RESET_VIEW_KEY:
             # A view control, not a flight command - no is_connected guard.
             self.reset_view()
         elif key in TAKEOFF_KEYS:
@@ -1488,6 +1557,11 @@ class UrsinaAdapter():
             for pivot, _ in self.propellers:
                 pivot.visible = False
 
+        # Scene edits arrive on the command server's socket thread and are
+        # applied here. Runs before the is_connected check so the scene editor
+        # works whether or not a client has connected the drone.
+        self._apply_scene_edits()
+
         if not self.is_connected:
             return
 
@@ -1498,9 +1572,6 @@ class UrsinaAdapter():
 
         if self.show_hud:
             self.update_takeoff_indicator()
-
-        # Keep the gate editor hidden while streaming (the FPV grabs the whole frame).
-        self._update_editor_visibility()
 
         if self.stream_active:
             width, height = int(window.size[0]), int(window.size[1])

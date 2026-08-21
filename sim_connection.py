@@ -7,6 +7,13 @@ on the client side that touches the TCP command channel.
 """
 import socket
 
+# Bound every synchronous request so a simulator that accepts a connection
+# then stalls cannot block the caller forever. The scene editor drives these
+# methods from the Tkinter main thread, where an unbounded recv would freeze
+# the GUI. 5s covers a slow but live server (frames can be large) while still
+# failing fast; is_reachable() keeps its own tighter 1s connect-only budget.
+_REQUEST_TIMEOUT = 5.0
+
 
 class SimConnection:
     """Request/response plumbing for one simulator host:port.
@@ -34,15 +41,19 @@ class SimConnection:
         """Fire-and-forget a command that produces no reply."""
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(_REQUEST_TIMEOUT)
                 s.connect((self.host, self.port))
                 s.send(command.encode())
-        except ConnectionRefusedError:
+        except OSError:
+            # Covers ConnectionRefusedError and socket.timeout (both OSError
+            # subclasses), so a stalled server fails fast instead of hanging.
             print(f"[Error] Unable to connect to the simulation at {self.host}:{self.port}")
 
     def request(self, command: str) -> str:
         """Send a command and return its reply, or "N/A" if unreachable."""
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(_REQUEST_TIMEOUT)
                 s.connect((self.host, self.port))
                 s.send(command.encode())
                 # The server sends one response and closes the connection, so
@@ -56,7 +67,10 @@ class SimConnection:
                         break
                     chunks.append(chunk)
                 return b''.join(chunks).decode()
-        except ConnectionRefusedError:
+        except OSError:
+            # ConnectionRefusedError and socket.timeout are both OSError
+            # subclasses; a stalled server now returns the "N/A" sentinel
+            # instead of blocking the caller indefinitely.
             print(f"[Error] Unable to retrieve '{command}' from {self.host}:{self.port}")
             return "N/A"
 
@@ -68,6 +82,7 @@ class SimConnection:
         """
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(_REQUEST_TIMEOUT)
                 s.connect((self.host, self.port))
                 s.send(command.encode())
 
