@@ -47,8 +47,22 @@ class SimulatorClient:
 
         A real Tello blocks inside the move command itself, so there is no
         djitellopy equivalent to poll.
+
+        Fails closed: request() collapses both a refused and a timed-out
+        connection into the "N/A" sentinel, and that is not "motion done".
+        Treating it as completion would let a caller proceed as though the
+        drone had arrived when contact was simply lost mid-move, so raise
+        instead of silently returning.
         """
-        while self._conn.request("get_is_moving") == "True":
+        while True:
+            reply = self._conn.request("get_is_moving")
+            if reply == "N/A":
+                raise ConnectionError(
+                    "lost contact with the simulator while waiting for "
+                    "motion to complete"
+                )
+            if reply != "True":
+                break
             time.sleep(0.1)
 
     def capture_frame(self):
