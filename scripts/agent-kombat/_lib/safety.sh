@@ -106,10 +106,16 @@ enforce_workdir_location() {
   # directories that have nothing to do with the workdir.
   local tmp_unresolved="$REPO_ROOT/tmp"
   local probe="$resolved"
-  while [[ "$probe" != "/" && -n "$probe" && "$probe" != "$tmp_root" && "$probe" != "$tmp_unresolved" ]]; do
+  while [[ "$probe" != "/" && -n "$probe" ]]; do
     if [[ -L "$probe" ]]; then
       die "workdir path component is a symlink: $probe. Containment cannot be guaranteed through a link whose target may change after this check."
     fi
+    # Break only AFTER the boundary itself has been symlink-checked. If the
+    # terminator ($REPO_ROOT/tmp, or its resolved form) is a symlink pointing
+    # outside the repo, the canonical containment test above still passes, so
+    # the walk is the only thing that can reject it -- folding the terminator
+    # into the loop's continue-condition would exit before -L ever ran on it.
+    [[ "$probe" == "$tmp_root" || "$probe" == "$tmp_unresolved" ]] && break
     probe="$(dirname "$probe")"
   done
 
