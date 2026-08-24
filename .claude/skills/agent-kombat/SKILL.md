@@ -41,7 +41,8 @@ Only the harnesses your chosen roster actually names are checked, so a machine
 without `codex` can still run `--roster duo`, and one without `opencode` can run
 `--roster pair`.
 
-Verify a machine, all free, no model calls:
+Verify a machine — all free except `--check-harnesses`, which makes a small
+opencode canary call on a roster with an opencode slot (see below):
 
 ```bash
 make kombat-roster-check                     # every preset parses and validates
