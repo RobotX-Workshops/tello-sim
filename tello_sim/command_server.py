@@ -18,7 +18,6 @@ class CommandServer:
 
     def __init__(self, ursina_adapter: UrsinaAdapter):
         self._ursina_adapter = ursina_adapter
-        self.latest_frame = None
         self.stream_active = False
         self.server_socket = None
 
