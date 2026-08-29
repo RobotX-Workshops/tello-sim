@@ -13,7 +13,8 @@ jobs:
   # a no-op (the review job is skipped), so it is safe to merge before the token
   # exists.
   secrets-gate:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, ARM64, rpi]
+    timeout-minutes: 5
     permissions: {}
     outputs:
       ok: ${{ steps.check.outputs.ok }}
@@ -32,7 +33,7 @@ jobs:
   claude-review:
     needs: secrets-gate
     if: ${{ needs.secrets-gate.outputs.ok == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, ARM64, rpi]
     timeout-minutes: 30
     permissions:
       contents: read
