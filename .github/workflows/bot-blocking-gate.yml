@@ -100,7 +100,7 @@ concurrency:
 
 jobs:
   gate:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, ARM64, rpi]
     timeout-minutes: 10
     steps:
       - name: Resolve PR head SHA + fork status
