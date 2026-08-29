@@ -47,8 +47,22 @@ class SimulatorClient:
 
         A real Tello blocks inside the move command itself, so there is no
         djitellopy equivalent to poll.
+
+        Fails closed: request() collapses both a refused and a timed-out
+        connection into the "N/A" sentinel, and that is not "motion done".
+        Treating it as completion would let a caller proceed as though the
+        drone had arrived when contact was simply lost mid-move, so raise
+        instead of silently returning.
         """
-        while self._conn.request("get_is_moving") == "True":
+        while True:
+            reply = self._conn.request("get_is_moving")
+            if reply == "N/A":
+                raise ConnectionError(
+                    "lost contact with the simulator while waiting for "
+                    "motion to complete"
+                )
+            if reply != "True":
+                break
             time.sleep(0.1)
 
     def capture_frame(self):
@@ -79,6 +93,40 @@ class SimulatorClient:
             return json.loads(data)
         except (json.JSONDecodeError, TypeError):
             return None
+
+    # --- scene editing -------------------------------------------------------
+    # Used by tools/scene_editor.py. Edits apply live in the simulator window;
+    # save_scene() persists them to gates.json / people.json.
+
+    def get_scene(self):
+        """Poll the editable scene: {'gates': [...], 'people': [...], 'ranges': {...}}.
+
+        'ranges' gives the min/max each field is clamped to, so a caller can
+        build its controls without hardcoding the simulator's bounds. Returns
+        None if unavailable.
+        """
+        data = self._conn.request('get_scene')
+        try:
+            return json.loads(data)
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+    def set_gate(self, index, field, value):
+        """Move/resize one gate. `field` is x, z, diameter_cm, clearance_cm or yaw.
+
+        Returns "ok", or "error: ..." if the index or field is rejected. The
+        value is clamped to the simulator's range for that field.
+        """
+        return self._conn.request(f'set_gate {index} {field} {value}')
+
+    def set_person(self, name, field, value):
+        """Move one pedestrian. `field` is x, y, z or yaw; `name` is a key from
+        get_scene()['people']. Returns "ok" or "error: ..."."""
+        return self._conn.request(f'set_person {name} {field} {value}')
+
+    def save_scene(self):
+        """Persist the current gate and people layout. Returns "ok" or "error: ..."."""
+        return self._conn.request('save_scene')
 
     def subscribe_state(self, callback):
         """Subscribe to the simulator's UDP telemetry stream (~10 Hz).

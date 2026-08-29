@@ -17,6 +17,7 @@ Pure-Python drone simulator. No ROS, no compiled packages, no monorepo.
 | Package | `tello_sim/` |
 | Client | `tello_sim_client.py`, `simulator_client.py`, `sim_connection.py` (repo root) |
 | Examples | `examples/` |
+| Tools | `tools/scene_editor.py` (Tkinter), `run.py` (launches sim + editor) |
 | Interpreter | `./venv/bin/python` (Python 3.13) |
 | Runtime deps | `requirements.txt` — ursina, PyOpenGL, numpy, opencv-python |
 | Test suite | **none yet** |
@@ -88,6 +89,17 @@ inside `tello_sim/` instead:
 Do not rewrite those imports to make step 3 uniform — `run_sim.py` is
 launched from inside the package and the flat form is what it relies on.
 That refactor is its own PR.
+
+`tools/scene_editor.py` imports `tkinter`, which Homebrew Python does not
+ship by default (`brew install python-tk@3.13`). Step 3 for that module is
+therefore environment-dependent; `compileall` still covers it.
+
+**Scene edits are applied on the main thread.** The command server's
+`set_gate` / `set_person` handlers only call `UrsinaAdapter.queue_scene_edit`
+— `_apply_scene_edits()` drains the queue from `_tick_impl`. Rebuilding a
+gate's `Pipe` mesh from the socket thread is Panda3D scene-graph surgery off
+the render thread. Follow the same pattern for any new scene mutation, as
+`send_rc_control` / `_apply_rc_control` already do.
 
 **The tree is not ruff-clean.** These findings pre-date the current work
 and are present on `origin/main`:

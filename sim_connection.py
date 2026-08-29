@@ -6,6 +6,31 @@ here rather than being duplicated in each of them. This is the only module
 on the client side that touches the TCP command channel.
 """
 import socket
+import time
+
+# Bound every synchronous request so a simulator that accepts a connection
+# then stalls cannot block the caller forever. The scene editor drives these
+# methods from the Tkinter main thread, where an unbounded recv would freeze
+# the GUI. 5s covers a slow but live server (frames can be large) while still
+# failing fast; is_reachable() keeps its own tighter 1s connect-only budget.
+_REQUEST_TIMEOUT = 5.0
+
+
+def _arm(sock: socket.socket, deadline: float) -> None:
+    """Point a socket's timeout at a single per-request deadline.
+
+    settimeout() bounds each blocking operation on its own, so a peer that
+    trickles one byte in just before every timeout could keep a recv loop
+    alive indefinitely — the per-operation clock resets on each success.
+    Re-arming the timeout against one monotonic deadline before every
+    connect/send/recv bounds the whole request instead of each step, so the
+    total wait can never exceed _REQUEST_TIMEOUT. Raises TimeoutError once
+    the deadline has passed; callers catch it via ``except OSError``.
+    """
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("request deadline exceeded")
+    sock.settimeout(remaining)
 
 
 class SimConnection:
@@ -34,29 +59,40 @@ class SimConnection:
         """Fire-and-forget a command that produces no reply."""
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(_REQUEST_TIMEOUT)
                 s.connect((self.host, self.port))
                 s.send(command.encode())
-        except ConnectionRefusedError:
+        except OSError:
+            # Covers ConnectionRefusedError and socket.timeout (both OSError
+            # subclasses), so a stalled server fails fast instead of hanging.
             print(f"[Error] Unable to connect to the simulation at {self.host}:{self.port}")
 
     def request(self, command: str) -> str:
         """Send a command and return its reply, or "N/A" if unreachable."""
+        deadline = time.monotonic() + _REQUEST_TIMEOUT
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                _arm(s, deadline)
                 s.connect((self.host, self.port))
+                _arm(s, deadline)
                 s.send(command.encode())
                 # The server sends one response and closes the connection, so
                 # read until EOF. A single recv() can return a truncated
                 # payload when TCP splits a larger JSON response (get_state /
-                # get_position), yielding intermittent parse failures.
+                # get_position), yielding intermittent parse failures. Re-arm
+                # before every recv so the whole loop shares one deadline.
                 chunks = []
                 while True:
+                    _arm(s, deadline)
                     chunk = s.recv(4096)
                     if not chunk:
                         break
                     chunks.append(chunk)
                 return b''.join(chunks).decode()
-        except ConnectionRefusedError:
+        except OSError:
+            # ConnectionRefusedError and socket.timeout are both OSError
+            # subclasses; a stalled server now returns the "N/A" sentinel
+            # instead of blocking the caller indefinitely.
             print(f"[Error] Unable to retrieve '{command}' from {self.host}:{self.port}")
             return "N/A"
 
@@ -66,12 +102,16 @@ class SimConnection:
         Used by the frame channel (get_latest_frame). Returns None when the
         server reports no frame (length 0) or the transfer fails.
         """
+        deadline = time.monotonic() + _REQUEST_TIMEOUT
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                _arm(s, deadline)
                 s.connect((self.host, self.port))
+                _arm(s, deadline)
                 s.send(command.encode())
 
                 # Receive frame size (4 bytes)
+                _arm(s, deadline)
                 size_data = s.recv(4)
                 if len(size_data) != 4:
                     print("[Error] Failed to receive frame size")
@@ -94,6 +134,7 @@ class SimConnection:
                 chunks = []
                 bytes_received = 0
                 while bytes_received < frame_size:
+                    _arm(s, deadline)
                     chunk = s.recv(min(4096, frame_size - bytes_received))
                     if not chunk:
                         break
