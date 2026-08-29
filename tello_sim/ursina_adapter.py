@@ -34,7 +34,6 @@ from ursina import (
 from time import sleep, time
 import time as time_module  # ursina publishes the per-frame delta as time.dt on the module
 import traceback
-from cv2.typing import MatLike
 
 logger = logging.getLogger(__name__)
 
@@ -1419,13 +1418,6 @@ class UrsinaAdapter():
         else:
             print("Drone is already on the ground")
         
-    def get_latest_frame(self) -> MatLike:
-        """Return the latest frame directly"""
-        if self.latest_frame is None:
-            raise Exception("No latest frame available.")
-        return cv2.cvtColor(self.latest_frame, cv2.COLOR_BGR2RGB)
-
-          
     def capture_frame(self):
         """Capture the latest FPV frame. Optionally save to disk if save_frames_to_disk is True."""
         if not self.stream_active:
@@ -1515,8 +1507,15 @@ class UrsinaAdapter():
                     # streamed frame. cvtColor and cv2.flip each return one fresh
                     # array, so this path makes two allocations instead of four and
                     # drops the (undeclared, transitive) Pillow dependency.
+                    #
+                    # Convert straight to RGB (not BGR): get_frame_read must hand
+                    # back RGB to match djitellopy, and the frame only ever leaves
+                    # here through a cv2.imencode('.png') -> cv2.imdecode round
+                    # trip, which is an identity on the channel order. Storing RGB
+                    # lets the client return the decoded frame as-is instead of
+                    # running a second full-frame COLOR_BGR2RGB on every read.
                     arr = np.frombuffer(pixel_data, np.uint8).reshape(height, width, 4)  # type: ignore
-                    frame = cv2.cvtColor(arr, cv2.COLOR_RGBA2BGR)
+                    frame = cv2.cvtColor(arr, cv2.COLOR_RGBA2RGB)
                     frame = cv2.flip(frame, 0)
 
                     # cv2.flip returns a freshly allocated array that nothing else
