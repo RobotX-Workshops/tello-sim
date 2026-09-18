@@ -56,3 +56,9 @@ when NO PR in the run is `blocked-<reason>`.
 
 After all first-pass and circle-back work completes, report the merge order and
 blocked PRs using the rules in `docs/agent-workflows/pr-resolution.md`.
+
+**Never merge.** The workflow stops at merge-ready (no conflicts, required
+checks green, all review threads resolved) — the merge-order report is the
+hand-off, and the human merges. No agent may run `gh pr merge` or merge by
+any other means, regardless of how the request is phrased (e.g. "resolve
+all the PRs" means prepare + report, never merge).
