@@ -365,6 +365,9 @@ whether the rebase was a no-op.
 - Ambiguity → stop and report `blocked-<reason>` with a concrete "what I'd
   need to know". A vapor PR is worse than no PR.
 - Stage explicit paths; never `git add -A`.
+- **Never merge.** End at merge-ready: report readiness and a merge
+  order, then hand off — merging is always a human action, no agent runs
+  `gh pr merge` or any equivalent, however the request is phrased.
 - Skip any branch already checked out in another worktree unless the
   orchestrator explicitly directs reuse.
 - When in doubt, ask. Don't guess.

@@ -15,8 +15,13 @@ document and add nothing of their own.
 - **Only open PRs authored by `$ME`** (per AGENTS.md §1). Never widened.
 - **Every review thread counts**, whatever the author — CodeRabbit,
   Copilot, `claude[bot]`, humans.
-- **Never merge.** These flows leave PRs mergeable and report a
-  recommended order. The human merges.
+- **Never merge.** The workflow's job ends when a PR is merge-ready (no
+  conflicts, required checks green, all review threads resolved): report
+  merge-readiness and a recommended merge order, then hand off to the
+  user. Merging is always a human action. No agent may run
+  `gh pr merge` or merge by any other means — regardless of how the
+  request is phrased (e.g. "resolve all the PRs" means prepare + report,
+  never merge).
 - **Never wait on CI.** Push and move on; a circle-back round picks up
   the results.
 
