@@ -366,8 +366,11 @@ whether the rebase was a no-op.
   need to know". A vapor PR is worse than no PR.
 - Stage explicit paths; never `git add -A`.
 - **Never merge.** End at merge-ready: report readiness and a merge
-  order, then hand off — merging is always a human action, no agent runs
-  `gh pr merge` or any equivalent, however the request is phrased.
+  order, then hand off — merging is always a human action, no agent
+  completes or finalizes a pull-request merge (`gh pr merge` or any
+  equivalent), however the request is phrased. Branch-integration
+  merges during conflict resolution (§6's `git merge origin/main`) are
+  not PR merges and remain allowed.
 - Skip any branch already checked out in another worktree unless the
   orchestrator explicitly directs reuse.
 - When in doubt, ask. Don't guess.
