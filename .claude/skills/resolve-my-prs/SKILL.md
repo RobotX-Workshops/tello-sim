@@ -59,6 +59,9 @@ blocked PRs using the rules in `docs/agent-workflows/pr-resolution.md`.
 
 **Never merge.** The workflow stops at merge-ready (no conflicts, required
 checks green, all review threads resolved) — the merge-order report is the
-hand-off, and the human merges. No agent may run `gh pr merge` or merge by
-any other means, regardless of how the request is phrased (e.g. "resolve
-all the PRs" means prepare + report, never merge).
+hand-off, and the human merges. No agent may complete or finalize a
+pull-request merge — no `gh pr merge` or any equivalent, regardless of how
+the request is phrased (e.g. "resolve all the PRs" means prepare + report,
+never merge). Branch-integration merges during conflict resolution
+(e.g. `git merge origin/main` per AGENTS.md §6) are not PR merges and
+remain allowed.

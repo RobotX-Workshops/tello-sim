@@ -18,10 +18,12 @@ document and add nothing of their own.
 - **Never merge.** The workflow's job ends when a PR is merge-ready (no
   conflicts, required checks green, all review threads resolved): report
   merge-readiness and a recommended merge order, then hand off to the
-  user. Merging is always a human action. No agent may run
-  `gh pr merge` or merge by any other means — regardless of how the
-  request is phrased (e.g. "resolve all the PRs" means prepare + report,
-  never merge).
+  user. Merging is always a human action. No agent may complete or
+  finalize a pull-request merge — no `gh pr merge` or any equivalent,
+  regardless of how the request is phrased (e.g. "resolve all the PRs"
+  means prepare + report, never merge). Branch-integration merges that
+  are part of conflict resolution (e.g. `git merge origin/main` onto a
+  shared branch, per AGENTS.md §6) are not PR merges and remain allowed.
 - **Never wait on CI.** Push and move on; a circle-back round picks up
   the results.
 
