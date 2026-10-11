@@ -50,7 +50,10 @@ name: Bot Blocking Gate
 #      POST'd check-run, not the job's exit code. This prevents stale
 #      workflow-status check-runs from sticking on the PR.
 #
-# Bots covered: claude[bot] (this repo's adversarial reviewer).
+# Bots covered: claude[bot] or github-actions[bot] (this repo's adversarial
+# reviewer). Which identity posts depends on claude-code-review.yml's auth:
+# without the CLAUDE_CODE_OAUTH_TOKEN secret the action posts via the
+# workflow's GITHUB_TOKEN (github-actions[bot]); with it, via claude[bot].
 
 on:
   # `pull_request_target` (not `pull_request`) so the workflow runs in
@@ -235,7 +238,10 @@ jobs:
           # Adversarial reviews are posted as issue comments (`gh pr comment`
           # under the hood). Each carries the marker:
           #   <!-- bot-review-marker: claude blocking=N nonblocking=N suspect=N sha=<short> -->
-          # Pull all issue comments authored by claude[bot], filter to the
+          # Pull all issue comments authored by the adversarial reviewer
+          # (claude[bot] with an OAuth-token setup, github-actions[bot] when
+          # claude-code-review.yml posts via GITHUB_TOKEN — this repo's
+          # current mode), filter to the
           # ones whose marker matches the current head SHA short, then keep
           # the LATEST one — bots re-review on force-push, and the most
           # recent verdict for this SHA is the one that counts.
@@ -245,7 +251,8 @@ jobs:
           # enforcement bypass.
           gh api --paginate \
             "repos/${REPO}/issues/${PR}/comments?per_page=100" \
-            --jq '[.[] | select(.user.login == "claude[bot]"
+            --jq '[.[] | select((.user.login == "claude[bot]" or
+                                 .user.login == "github-actions[bot]")
                                 and (.body | startswith("<!-- bot-review-marker:")))]
                   | sort_by(.created_at)
                   | .[]
